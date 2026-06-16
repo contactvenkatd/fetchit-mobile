@@ -1,98 +1,84 @@
-import * as Device from 'expo-device';
-import { Platform, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Redirect, useRouter } from 'expo-router';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
-import { AnimatedIcon } from '@/components/animated-icon';
-import { HintRow } from '@/components/hint-row';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
+import { Button } from '@/components/ui/Button';
+import { Logo } from '@/components/ui/Logo';
+import { Screen } from '@/components/ui/Screen';
+import { useAuth } from '@/lib/auth';
+import { Colors, FontSize, Spacing } from '@/theme/colors';
 
-function getDevMenuHint() {
-  if (Platform.OS === 'web') {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
-  }
-  if (Device.isDevice) {
+export default function Landing() {
+  const router = useRouter();
+  const { session, loading } = useAuth();
+
+  // While restoring the cached session, hold on a branded splash.
+  if (loading) {
     return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
+      <Screen center>
+        <View style={styles.splash}>
+          <Logo size={120} />
+          <ActivityIndicator color={Colors.yellow} />
+        </View>
+      </Screen>
     );
   }
-  const shortcut = Platform.OS === 'android' ? 'cmd+m (or ctrl+m)' : 'cmd+d';
+
+  // Auto-login: an active session skips the landing page (web RedirectIfAuthed).
+  if (session) return <Redirect href="/(app)/chat" />;
+
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
-  );
-}
+    <Screen padded={false}>
+      <LinearGradient
+        colors={[Colors.background, '#241f08']}
+        style={styles.fill}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}>
+        <View style={styles.hero}>
+          <Logo size={140} />
+          <Text style={styles.headline}>Shop Smarter. Fetch Faster.</Text>
+          <Text style={styles.tagline}>Your shopping best friend 🐕</Text>
+          <Text style={styles.sub}>
+            FetchIt&apos;s AI searches Amazon, Walmart, Target, Best Buy and more
+            — then checks out for you automatically.
+          </Text>
+        </View>
 
-export default function HomeScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.safeArea}>
-        <ThemedView style={styles.heroSection}>
-          <AnimatedIcon />
-          <ThemedText type="title" style={styles.title}>
-            Welcome to&nbsp;Expo
-          </ThemedText>
-        </ThemedView>
-
-        <ThemedText type="code" style={styles.code}>
-          get started
-        </ThemedText>
-
-        <ThemedView type="backgroundElement" style={styles.stepContainer}>
-          <HintRow
-            title="Try editing"
-            hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
+        <View style={styles.actions}>
+          <Button label="Create Account" onPress={() => router.push('/signup')} />
+          <Button
+            label="Sign In"
+            variant="secondary"
+            onPress={() => router.push('/login')}
           />
-          <HintRow title="Dev tools" hint={getDevMenuHint()} />
-          <HintRow
-            title="Fresh start"
-            hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-          />
-        </ThemedView>
-
-        {Platform.OS === 'web' && <WebBadge />}
-      </SafeAreaView>
-    </ThemedView>
+        </View>
+      </LinearGradient>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  splash: { alignItems: 'center', gap: Spacing.lg },
+  fill: { flex: 1, paddingHorizontal: Spacing.lg, paddingVertical: Spacing.xxl },
+  hero: {
     flex: 1,
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  safeArea: {
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    gap: Spacing.three,
-    paddingBottom: BottomTabInset + Spacing.three,
-    maxWidth: MaxContentWidth,
-  },
-  heroSection: {
     alignItems: 'center',
     justifyContent: 'center',
-    flex: 1,
-    paddingHorizontal: Spacing.four,
-    gap: Spacing.four,
+    gap: Spacing.md,
   },
-  title: {
+  headline: {
+    color: Colors.text,
+    fontSize: FontSize.display,
+    fontWeight: '800',
     textAlign: 'center',
   },
-  code: {
-    textTransform: 'uppercase',
+  tagline: { color: Colors.yellow, fontSize: FontSize.lg, fontWeight: '700' },
+  sub: {
+    color: Colors.textMuted,
+    fontSize: FontSize.md,
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: Spacing.sm,
   },
-  stepContainer: {
-    gap: Spacing.three,
-    alignSelf: 'stretch',
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-    borderRadius: Spacing.four,
-  },
+  actions: { gap: Spacing.md },
 });
