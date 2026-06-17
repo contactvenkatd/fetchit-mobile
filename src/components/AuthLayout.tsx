@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,11 +23,14 @@ export function AuthLayout({
   subtitle,
   children,
   footer,
+  onBack,
 }: {
   title: string;
   subtitle?: string;
   children: ReactNode;
   footer?: ReactNode;
+  /** When set, renders a yellow back arrow in the top-left corner. */
+  onBack?: () => void;
 }) {
   return (
     <Screen padded={false}>
@@ -48,6 +52,17 @@ export function AuthLayout({
           {footer ? <View style={styles.footer}>{footer}</View> : null}
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {onBack ? (
+        <Pressable
+          onPress={onBack}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          style={({ pressed }) => [styles.back, pressed && styles.backPressed]}>
+          <Text style={styles.backIcon}>←</Text>
+        </Pressable>
+      ) : null}
     </Screen>
   );
 }
@@ -83,4 +98,21 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   footer: { alignItems: 'center' },
+  back: {
+    position: 'absolute',
+    top: Spacing.sm,
+    left: Spacing.md,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  backPressed: { opacity: 0.6 },
+  backIcon: {
+    color: Colors.yellow,
+    fontSize: 28,
+    fontWeight: '600',
+    lineHeight: 28,
+  },
 });

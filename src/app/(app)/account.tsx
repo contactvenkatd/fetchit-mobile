@@ -1,5 +1,5 @@
 import { useRouter, type Href } from 'expo-router';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
@@ -33,14 +33,25 @@ export default function AccountScreen() {
   const name = [firstName, lastName].filter(Boolean).join(' ');
   const perMonth = monthlyDisplay(plan, 'monthly');
 
-  async function handleSignOut() {
-    await signOut();
-    router.replace('/');
+  function confirmSignOut() {
+    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Sign Out',
+        style: 'destructive',
+        onPress: async () => {
+          await signOut();
+          router.replace('/');
+        },
+      },
+    ]);
   }
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scroll}>
         {/* Plan card */}
         <View style={[styles.planCard, { borderColor: PLAN_COLOR[plan] ?? Colors.border }]}>
           <Text style={styles.planLabel}>Your Plan</Text>
@@ -71,15 +82,30 @@ export default function AccountScreen() {
             </Text>
           ))}
         </View>
-
-        <Button label="Log Out" variant="secondary" onPress={handleSignOut} />
       </ScrollView>
+
+      {/* Sticky footer — Sign Out is always visible regardless of scroll. */}
+      <View style={styles.footer}>
+        <Button label="Sign Out" variant="danger" onPress={confirmSignOut} />
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  scroll: { gap: Spacing.lg, paddingVertical: Spacing.lg },
+  scrollView: { flex: 1 },
+  scroll: {
+    gap: Spacing.lg,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.lg,
+  },
+  // Pinned below the ScrollView; a top border separates it from the list.
+  footer: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.sm,
+  },
   planCard: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.lg,

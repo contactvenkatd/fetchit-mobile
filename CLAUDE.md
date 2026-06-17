@@ -53,9 +53,16 @@ The mobile shell is dark-first (the web landing page is light/cream; the web
 src/
   app/                       # expo-router routes (root = src/app)
     _layout.tsx              # root Stack + providers (SafeArea, Stripe, Auth, dark theme)
-    index.tsx                # Landing/Splash (redirects to chat if logged in)
-    login.tsx                # ✅ fully built — email/password sign-in
-    signup.tsx               # ✅ fully built — sign-up + "check your email" screen
+    index.tsx                # Landing/Splash — logo + "Shop Smarter. Fetch Faster.",
+                             #   Sign In (/login) + Create Account (/signup) buttons,
+                             #   "Learn More" → slide-up bottom sheet (RN Modal).
+                             #   Redirects to chat if logged in.
+    login.tsx                # ✅ password check → signOut → signInWithOtp → /otp (login)
+    signup.tsx               # ✅ signUp → /otp (signup); name/password collected here
+    otp.tsx                  # ✅ 8-digit email OTP — params {email, mode}; verifyOtp
+                             #   (type 'email' for login, 'signup' for signup),
+                             #   auto-advance/backspace boxes, shake on error, 30s resend.
+                             #   signup → onboarding, login → chat.
     tos.tsx                  # public Terms of Service
     privacy-policy.tsx       # public Privacy Policy
     (onboarding)/            # post-signup flow (no headers)
@@ -114,12 +121,20 @@ before treating "no session" as logged-out. Plan/name helpers (`getPlan`,
 web `utils.js` (`getPlan` returns Free once `plan_cancels_at` passes).
 
 ## Status — what's built vs stubbed
-- **Fully built:** Landing, **Login**, **Signup** (with email-verification
-  screen), the auth/theme/navigation foundation, Supabase client + auth context,
+- **Fully built:** Landing (logo + tagline, Sign In/Create Account CTAs, and a
+  "Learn More" slide-up bottom sheet — built with RN's `Modal animationType="slide"`,
+  no extra deps), **Login** (password verify → `signOut` → `signInWithOtp` → OTP,
+  an email-code 2FA step), **OTP** (`otp.tsx` — 8-box email-code entry with
+  auto-advance, backspace nav, paste/one-time-code autofill, shake-on-error, and
+  a 30s resend cooldown; `verifyOtp` type is `email` for login / `signup` for
+  signup), **Signup** (creates the account then routes to OTP for email
+  verification), the auth/theme/navigation foundation, Supabase client + auth context,
   Stripe config, and a working Chat shell (top bar, empty state with suggestion
   chips, message input with a mocked assistant reply — no real AI/product cards
-  yet). Account Settings has a real plan card, profile, navigation hub, and sign
-  out.
+  yet). Account Settings has a real plan card, profile, navigation hub, and a
+  confirmed **Sign Out** (red `danger` Button → `Alert` → `signOut()` → `/`)
+  pinned in a sticky footer below the ScrollView — always visible, with a
+  top-border divider separating it from the list.
 - **Stubbed (`ScreenPlaceholder`):** TOS, Privacy Policy, the onboarding steps'
   business logic (plans/terms/delivery use simple navigation; `name` actually
   saves), Order History, Orders & Analytics, Wishlist, Auto-Reorder, Family

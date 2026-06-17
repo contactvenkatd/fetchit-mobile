@@ -9,11 +9,13 @@ import {
 
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
-type Variant = 'primary' | 'secondary' | 'ghost';
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
 /**
  * App-wide button. `primary` is the yellow FetchIt CTA; `secondary` is a
- * charcoal pill with a yellow border; `ghost` is text-only (links, "Skip").
+ * charcoal pill with a yellow border; `ghost` is text-only (links, "Skip");
+ * `danger` is an outlined pill with a red border + red text (destructive
+ * actions like sign out / delete).
  */
 export function Button({
   label,
@@ -42,6 +44,7 @@ export function Button({
         variant === 'primary' && styles.primary,
         variant === 'secondary' && styles.secondary,
         variant === 'ghost' && styles.ghost,
+        variant === 'danger' && styles.danger,
         pressed && !isDisabled && styles.pressed,
         isDisabled && styles.disabled,
         style,
@@ -49,14 +52,22 @@ export function Button({
       <View style={styles.content}>
         {loading ? (
           <ActivityIndicator
-            color={variant === 'primary' ? Colors.charcoal : Colors.yellow}
+            color={
+              variant === 'primary'
+                ? Colors.charcoal
+                : variant === 'danger'
+                  ? Colors.error
+                  : Colors.yellow
+            }
           />
         ) : (
           <Text
             style={[
               styles.label,
               variant === 'primary' && styles.labelPrimary,
-              variant !== 'primary' && styles.labelAccent,
+              (variant === 'secondary' || variant === 'ghost') &&
+                styles.labelAccent,
+              variant === 'danger' && styles.labelDanger,
             ]}>
             {label}
           </Text>
@@ -81,10 +92,16 @@ const styles = StyleSheet.create({
     borderColor: Colors.yellow,
   },
   ghost: { backgroundColor: 'transparent', paddingVertical: Spacing.sm },
+  danger: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+    borderColor: Colors.error,
+  },
   pressed: { opacity: 0.85 },
   disabled: { opacity: 0.5 },
   content: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   label: { fontSize: FontSize.md, fontWeight: '700' },
   labelPrimary: { color: Colors.charcoal },
   labelAccent: { color: Colors.yellow },
+  labelDanger: { color: Colors.error },
 });

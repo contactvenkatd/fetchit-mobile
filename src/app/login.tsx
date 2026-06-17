@@ -5,7 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AuthLayout } from '@/components/AuthLayout';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
-import { signIn } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import { Colors, FontSize, Spacing } from '@/theme/colors';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -29,10 +29,15 @@ export default function LoginScreen() {
     }
 
     setLoading(true);
-    const { data, error: signInError } = await signIn(email.trim(), password);
-    setLoading(false);
+    const clean = email.trim();
 
+    // 1. Verify the password is correct (this transiently signs the user in).
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: clean,
+      password,
+    });
     if (signInError) {
+      setLoading(false);
       // Mirror the web app's friendly mapping of Supabase auth errors.
       const msg = signInError.message.toLowerCase();
       if (msg.includes('confirm') || msg.includes('not confirmed')) {
@@ -43,16 +48,32 @@ export default function LoginScreen() {
       return;
     }
 
-    if (data.session) {
-      // onAuthStateChange updates the context; route into the app.
-      router.replace('/(app)/chat');
+    // 2. Drop that session — login completes only after the email code (2FA).
+    await supabase.auth.signOut();
+
+    // 3. Send the one-time code to an existing account (never create one here).
+    const { error: otpError } = await supabase.auth.signInWithOtp({
+      email: clean,
+      options: { shouldCreateUser: false },
+    });
+    setLoading(false);
+
+    if (otpError) {
+      setError('Could not send a verification code. Please try again.');
+      return;
     }
+
+    router.push({
+      pathname: '/otp',
+      params: { email: clean, mode: 'login' },
+    });
   }
 
   return (
     <AuthLayout
       title="Welcome back"
       subtitle="Sign in to keep fetching deals"
+      onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
       footer={
         <View style={styles.footerRow}>
           <Text style={styles.footerText}>New to FetchIt? </Text>
