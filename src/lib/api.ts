@@ -87,3 +87,25 @@ export async function createSubscription(params: {
   if (data?.error) return { error: { message: data.error } };
   return { data };
 }
+
+/**
+ * Family sharing — thin wrapper over the `family-manage` edge function (same one
+ * the web app's `invokeFamily` hits). The function identifies the caller from
+ * their JWT, so a member's `leave` only ever touches their own membership: it
+ * deletes the row, frees the owner's slot, and resets the member's metadata to
+ * Free. `inviteId` is used by the owner-side `remove` action; it's accepted here
+ * for parity but ignored by the server for `leave`.
+ */
+export type FamilyAction = 'leave' | 'remove' | 'disband' | 'schedule' | 'unschedule';
+
+export async function familyManage(
+  action: FamilyAction,
+  inviteId?: string,
+): Promise<{ data?: { ok?: boolean }; error?: { message: string } }> {
+  const { data, error } = await supabase.functions.invoke('family-manage', {
+    body: { action, inviteId },
+  });
+  if (error) return { error: { message: await readFnError(error, "Couldn't update the family.") } };
+  if (data?.error) return { error: { message: data.error } };
+  return { data };
+}
