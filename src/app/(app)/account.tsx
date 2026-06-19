@@ -1,8 +1,8 @@
 import { useRouter, type Href } from 'expo-router';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/ui/Button';
-import { Screen } from '@/components/ui/Screen';
 import { getName, getPlan, signOut, useAuth } from '@/lib/auth';
 import { monthlyDisplay, money } from '@/lib/stripe';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
@@ -48,63 +48,61 @@ export default function AccountScreen() {
   }
 
   return (
-    <Screen>
+    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }} edges={['top']}>
       <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scroll}>
-        {/* Plan card */}
-        <View style={[styles.planCard, { borderColor: PLAN_COLOR[plan] ?? Colors.border }]}>
-          <Text style={styles.planLabel}>Your Plan</Text>
-          <Text style={[styles.planName, { color: PLAN_COLOR[plan] ?? Colors.text }]}>
-            {plan}
-          </Text>
-          <Text style={styles.planPrice}>
-            {plan === 'Free' ? '$0/mo' : `$${money(perMonth)}/mo`}
-          </Text>
-          <Button label="Change Plan" variant="secondary" onPress={() => router.push('/(onboarding)/plans')} />
-        </View>
-
-        {/* Profile */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Profile</Text>
-          <Text style={styles.sectionValue}>{name || '—'}</Text>
-          <Text style={styles.sectionSub}>{session?.user?.email}</Text>
-        </View>
-
-        {/* Navigation */}
-        <View style={styles.menu}>
-          {LINKS.map((l) => (
-            <Text
-              key={l.label}
-              style={styles.menuItem}
-              onPress={() => router.push(l.href)}>
-              {l.icon}  {l.label}
+        style={{ flex: 1 }}
+        contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+        scrollEnabled={true}>
+        <View style={styles.content}>
+          {/* Plan card */}
+          <View style={[styles.planCard, { borderColor: PLAN_COLOR[plan] ?? Colors.border }]}>
+            <Text style={styles.planLabel}>Your Plan</Text>
+            <Text style={[styles.planName, { color: PLAN_COLOR[plan] ?? Colors.text }]}>
+              {plan}
             </Text>
-          ))}
+            <Text style={styles.planPrice}>
+              {plan === 'Free' ? '$0/mo' : `$${money(perMonth)}/mo`}
+            </Text>
+            <Button label="Change Plan" variant="secondary" onPress={() => router.push('/(onboarding)/plans')} />
+          </View>
+
+          {/* Profile */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Profile</Text>
+            <Text style={styles.sectionValue}>{name || '—'}</Text>
+            <Text style={styles.sectionSub}>{session?.user?.email}</Text>
+          </View>
+
+          {/* Navigation */}
+          <View style={styles.menu}>
+            {LINKS.map((l) => (
+              <Text
+                key={l.label}
+                style={styles.menuItem}
+                onPress={() => router.push(l.href)}>
+                {l.icon}  {l.label}
+              </Text>
+            ))}
+          </View>
+
+          {/* Sign Out lives at the bottom of the scrollable content. */}
+          <View style={styles.signOut}>
+            <Button label="Sign Out" variant="danger" onPress={confirmSignOut} />
+          </View>
         </View>
       </ScrollView>
-
-      {/* Sticky footer — Sign Out is always visible regardless of scroll. */}
-      <View style={styles.footer}>
-        <Button label="Sign Out" variant="danger" onPress={confirmSignOut} />
-      </View>
-    </Screen>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: { flex: 1 },
-  scroll: {
-    gap: Spacing.lg,
-    paddingTop: Spacing.lg,
-    paddingBottom: Spacing.lg,
-  },
-  // Pinned below the ScrollView; a top border separates it from the list.
-  footer: {
+  // Vertical rhythm between the cards; the ScrollView owns the outer padding.
+  content: { gap: Spacing.lg },
+  // Sits at the bottom of the scrollable content, divided from the list above.
+  signOut: {
     borderTopWidth: 1,
     borderTopColor: Colors.border,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.sm,
+    paddingTop: Spacing.lg,
   },
   planCard: {
     backgroundColor: Colors.surface,

@@ -40,19 +40,36 @@ export default function RootLayout() {
                   contentStyle: { backgroundColor: Colors.background },
                 }}>
                 <Stack.Screen name="index" options={{ headerShown: false }} />
-                <Stack.Screen name="login" options={{ headerShown: false }} />
-                <Stack.Screen name="signup" options={{ headerShown: false }} />
-                <Stack.Screen name="otp" options={{ headerShown: false }} />
+                {/* Auth screens: disable the back-swipe so the flow can't be
+                    rewound by gesture (back buttons remain for intentional nav). */}
+                <Stack.Screen
+                  name="login"
+                  options={{ headerShown: false, gestureEnabled: false }}
+                />
+                <Stack.Screen
+                  name="signup"
+                  options={{ headerShown: false, gestureEnabled: false }}
+                />
+                <Stack.Screen
+                  name="otp"
+                  options={{ headerShown: false, gestureEnabled: false }}
+                />
                 <Stack.Screen name="tos" options={{ title: 'Terms of Service' }} />
                 <Stack.Screen
                   name="privacy-policy"
                   options={{ title: 'Privacy Policy' }}
                 />
+                {/* Authenticated areas: block the swipe-back gesture so a signed-in
+                    user can't pop the group off the stack and land on an auth
+                    screen still sitting underneath it. */}
                 <Stack.Screen
                   name="(onboarding)"
-                  options={{ headerShown: false }}
+                  options={{ headerShown: false, gestureEnabled: false }}
                 />
-                <Stack.Screen name="(app)" options={{ headerShown: false }} />
+                <Stack.Screen
+                  name="(app)"
+                  options={{ headerShown: false, gestureEnabled: false }}
+                />
               </Stack>
             </ThemeProvider>
           </AuthProvider>

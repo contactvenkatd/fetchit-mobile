@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import {
   FlatList,
   KeyboardAvoidingView,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -12,8 +13,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ChatHistoryDrawer } from '@/components/ChatHistoryDrawer';
 import { Logo } from '@/components/ui/Logo';
 import { greetingName, useAuth } from '@/lib/auth';
+import type { Chat } from '@/lib/chats';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 type Msg = { id: string; role: 'user' | 'assistant'; text: string };
@@ -32,7 +35,34 @@ export default function ChatScreen() {
   const { session } = useAuth();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState('');
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const listRef = useRef<FlatList<Msg>>(null);
+
+  // Open the history drawer on a rightward swipe from a dedicated strip on the
+  // LEFT edge (see `edgeSwipe`). It declines the touch on start (so taps pass
+  // through) and only claims a clearly-horizontal rightward drag, opening on
+  // release.
+  const swipe = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_e, g) =>
+        g.dx > 25 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+      onPanResponderRelease: (_e, g) => {
+        if (g.dx > 40) setDrawerOpen(true);
+      },
+    }),
+  ).current;
+
+  // Load a past conversation from the drawer into the active screen.
+  function loadChat(chat: Chat) {
+    setMessages(
+      chat.messages.map((m) => ({ id: nextId(), role: m.role, text: m.text })),
+    );
+    setCurrentChatId(chat.id);
+    setDrawerOpen(false);
+    requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
+  }
 
   function send(text: string) {
     const body = text.trim();
@@ -127,6 +157,21 @@ export default function ChatScreen() {
           </Pressable>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Left-edge swipe zone — opens the drawer on a rightward swipe. */}
+      <View
+        style={styles.edgeSwipe}
+        {...swipe.panHandlers}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      />
+
+      <ChatHistoryDrawer
+        open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onSelectChat={loadChat}
+        currentChatId={currentChatId}
+      />
     </SafeAreaView>
   );
 }
@@ -134,6 +179,8 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   flex: { flex: 1 },
+  // Invisible left-edge gesture zone that opens the chat-history drawer.
+  edgeSwipe: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 40, zIndex: 999 },
   topBar: {
     flexDirection: 'row',
     alignItems: 'center',

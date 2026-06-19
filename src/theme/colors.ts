@@ -26,6 +26,9 @@ export const Colors = {
   textFaint: '#7A7E85',
   placeholder: '#6B6F76',
 
+  // Overlay / scrim behind modals & drawers (animate its opacity)
+  scrim: '#000000',
+
   // Lines & states
   border: '#333333',
   borderFocus: '#FFD700',

@@ -59,6 +59,7 @@ export default function SignupScreen() {
     <AuthLayout
       title="Create your account"
       subtitle="Start fetching deals in seconds"
+      onBack={() => router.replace('/')}
       footer={
         <View style={styles.footerRow}>
           <Text style={styles.footerText}>Already have an account? </Text>

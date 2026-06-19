@@ -28,7 +28,7 @@ export default function AppLayout() {
         headerTitleStyle: { color: Colors.text },
         contentStyle: { backgroundColor: Colors.background },
       }}>
-      <Stack.Screen name="chat" options={{ headerShown: false }} />
+      <Stack.Screen name="chat" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="account" options={{ title: 'Account Settings' }} />
       <Stack.Screen name="order-history" options={{ title: 'Order History' }} />
       <Stack.Screen name="orders" options={{ title: 'Orders & Analytics' }} />
