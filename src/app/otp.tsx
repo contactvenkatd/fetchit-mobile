@@ -25,10 +25,17 @@ const EMPTY = Array.from({ length: LENGTH }, () => '');
 
 export default function OtpScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ email?: string; mode?: string }>();
+  const params = useLocalSearchParams<{
+    email?: string;
+    mode?: string;
+    joinToken?: string;
+  }>();
   const email = String(params.email ?? '').trim();
   // Anything that isn't an explicit "login" is treated as the signup flow.
   const mode = params.mode === 'login' ? 'login' : 'signup';
+  // Set when the user reached login via a family invite — resume the accept.
+  const joinToken =
+    typeof params.joinToken === 'string' ? params.joinToken : '';
 
   const [digits, setDigits] = useState<string[]>(EMPTY);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
@@ -83,6 +90,12 @@ export default function OtpScreen() {
     }
 
     // onAuthStateChange updates the auth context; route by flow.
+    // A pending family invite wins over the normal destination — resume the
+    // accept on /join-family now that we're authenticated.
+    if (joinToken) {
+      router.replace({ pathname: '/join-family', params: { token: joinToken } });
+      return;
+    }
     router.replace(mode === 'login' ? '/(app)/chat' : '/(onboarding)/plans');
   }
 

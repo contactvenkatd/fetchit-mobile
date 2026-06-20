@@ -1,4 +1,4 @@
-import { Link, useRouter } from 'expo-router';
+import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -12,6 +12,9 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginScreen() {
   const router = useRouter();
+  // Carried in when the user arrived from a family invite while logged out —
+  // forwarded through OTP so we can resume accepting the invite after sign-in.
+  const { joinToken } = useLocalSearchParams<{ joinToken?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -65,7 +68,13 @@ export default function LoginScreen() {
 
     router.push({
       pathname: '/otp',
-      params: { email: clean, mode: 'login' },
+      params: {
+        email: clean,
+        mode: 'login',
+        // Preserve the invite token across the OTP step so login can resume the
+        // family-invite accept once the code is verified.
+        ...(joinToken ? { joinToken } : {}),
+      },
     });
   }
 
