@@ -43,7 +43,8 @@
           "enableGooglePay": false
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "./plugins/withSceneLifecycle"
     ],
     "experiments": {
       "typedRoutes": true,
