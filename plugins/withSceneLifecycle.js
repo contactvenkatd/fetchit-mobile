@@ -57,11 +57,6 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     let window = UIWindow(windowScene: windowScene)
     self.window = window
-    // Mirror the window onto the AppDelegate too: React Native and some libraries
-    // still resolve the app window via \`UIApplication.delegate.window\`, and leaving
-    // it nil breaks touch/interaction delivery and the orientation path. This is the
-    // critical line that keeps the migrated app responsive.
-    appDelegate.window = window
 
     // Under the scene life cycle a deep link / universal link that *cold-launches*
     // the app arrives in \`connectionOptions\`, NOT in the app delegate's launch
@@ -95,6 +90,16 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     // explicitly to match the canonical RN scene setup and guard against any
     // factory override that skips it.
     window.makeKeyAndVisible()
+
+    // Mirror the window onto the AppDelegate too: React Native and some libraries
+    // still resolve the app window via \`UIApplication.delegate.window\`, and leaving
+    // it nil breaks touch/interaction delivery and the orientation path. This is the
+    // critical line that keeps the migrated app responsive.
+    //
+    // It MUST run AFTER \`startReactNative\` + \`makeKeyAndVisible\`: the factory sets
+    // up the window internally and can otherwise clobber an earlier assignment, so
+    // this final mirror is the authoritative one that keeps touch delivery working.
+    appDelegate.window = window
   }
 
   // Foreground deep link (app already running) — fire the \`url\` event path.

@@ -95,15 +95,23 @@ export default function SignupScreen() {
 
       <Button label="Create Account" onPress={handleSignup} loading={loading} />
 
+      {/* Inline legal links use Text onPress (not nested expo-router <Link>):
+          a <Link> nested inside a <Text> installs its own press/gesture handler
+          that conflicts with the parent Text's native text-press handling on
+          iOS, which can swallow touches across this subtree (the cause of the
+          unresponsive-buttons issue). Plain Text onPress navigates the same way
+          without a nested gesture handler. */}
       <Text style={styles.legal}>
         By creating an account you agree to our{' '}
-        <Link href="/tos" style={styles.legalLink}>
+        <Text style={styles.legalLink} onPress={() => router.push('/tos')}>
           Terms of Service
-        </Link>{' '}
+        </Text>{' '}
         and{' '}
-        <Link href="/privacy-policy" style={styles.legalLink}>
+        <Text
+          style={styles.legalLink}
+          onPress={() => router.push('/privacy-policy')}>
           Privacy Policy
-        </Link>
+        </Text>
         .
       </Text>
     </AuthLayout>
