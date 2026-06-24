@@ -32,6 +32,9 @@ export default function SignupScreen() {
     const { data, error: signUpError } = await signUp(email.trim(), password);
     setLoading(false);
 
+    console.log('signUp data:', JSON.stringify(data));
+    console.log('signUp error:', JSON.stringify(signUpError));
+
     if (signUpError) {
       const msg = signUpError.message.toLowerCase();
       if (msg.includes('already') || msg.includes('registered')) {
