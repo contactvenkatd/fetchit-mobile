@@ -38,12 +38,13 @@ import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 const MAX_FAMILY_SLOTS = 4;
 
-// The web app's production origin. Used as `appOrigin` for `send-family-invite`,
-// which builds the invite email's join link (`${appOrigin}/join-family?token=…`).
-// RN has no window.location, so this is the web equivalent. MUST be a real,
-// absolute origin or the emailed link will be broken. If the web app isn't
-// deployed yet, swap this for the local dev URL ('http://localhost:3000').
-const WEB_APP_ORIGIN = 'https://fetchit-app.vercel.app';
+// The deep link scheme used as `appOrigin` for `send-family-invite`, which builds
+// the invite email's join link (`${appOrigin}/join-family?token=…`). Using the
+// app's URL scheme makes the emailed link `fetchitmobile://join-family?token=…`,
+// which iOS intercepts to open the FetchIt app directly instead of Safari. Note
+// the single trailing slash — the edge function appends `/join-family`, yielding
+// the `fetchitmobile://` double slash.
+const appOrigin = 'fetchitmobile:/';
 
 // Pragmatic email check, mirrors the web utils isValidEmail.
 function isValidEmail(value: string): boolean {
@@ -156,7 +157,7 @@ export default function FamilySharingScreen() {
     }
     setSending(true);
     const { data, error } = await supabase.functions.invoke('send-family-invite', {
-      body: { email, appOrigin: WEB_APP_ORIGIN },
+      body: { email, appOrigin },
     });
     setSending(false);
 
