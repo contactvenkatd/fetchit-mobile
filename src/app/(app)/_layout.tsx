@@ -29,13 +29,34 @@ export default function AppLayout() {
         contentStyle: { backgroundColor: Colors.background },
       }}>
       <Stack.Screen name="chat" options={{ headerShown: false, gestureEnabled: false }} />
-      <Stack.Screen name="account" options={{ title: 'Account Settings' }} />
-      <Stack.Screen name="order-history" options={{ title: 'Order History' }} />
-      <Stack.Screen name="orders" options={{ title: 'Orders & Analytics' }} />
-      <Stack.Screen name="wishlist" options={{ title: 'Wishlist' }} />
-      <Stack.Screen name="auto-reorder" options={{ title: 'Auto-Reorder' }} />
-      <Stack.Screen name="family-sharing" options={{ title: 'Family Sharing' }} />
-      <Stack.Screen name="cards-address" options={{ title: 'Cards & Address' }} />
+      <Stack.Screen
+        name="account"
+        options={{ title: 'Account Settings', headerShown: true, headerBackVisible: true }}
+      />
+      <Stack.Screen
+        name="order-history"
+        options={{ title: 'Order History', headerShown: true, headerBackVisible: true }}
+      />
+      <Stack.Screen
+        name="orders"
+        options={{ title: 'Orders & Analytics', headerShown: true, headerBackVisible: true }}
+      />
+      <Stack.Screen
+        name="wishlist"
+        options={{ title: 'Wishlist', headerShown: true, headerBackVisible: true }}
+      />
+      <Stack.Screen
+        name="auto-reorder"
+        options={{ title: 'Auto-Reorder', headerShown: true, headerBackVisible: true }}
+      />
+      <Stack.Screen
+        name="family-sharing"
+        options={{ title: 'Family Sharing', headerShown: true, headerBackVisible: true }}
+      />
+      <Stack.Screen
+        name="cards-address"
+        options={{ title: 'Cards & Address', headerShown: true, headerBackVisible: true }}
+      />
     </Stack>
   );
 }

@@ -5,7 +5,7 @@ import { StyleSheet, Text } from 'react-native';
 
 import { AuthLayout } from '@/components/AuthLayout';
 import { Button } from '@/components/ui/Button';
-import { createSubscription } from '@/lib/api';
+import { createSubscription, saveCard } from '@/lib/api';
 import { supabase } from '@/lib/supabase';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
@@ -46,7 +46,7 @@ export default function PaymentScreen() {
 
     // 2. Confirm the card payment on-device — the CardField holds the entered
     //    details, so Stripe tokenizes them; raw card data never touches our state.
-    const { error: payErr } = await confirmPayment(sub.clientSecret, {
+    const { paymentIntent, error: payErr } = await confirmPayment(sub.clientSecret, {
       paymentMethodType: 'Card',
     });
     if (payErr) {
@@ -55,7 +55,17 @@ export default function PaymentScreen() {
       return;
     }
 
-    // 3. Record the new plan on the user (mirrors the web's finalizePlan).
+    // 3. Save the just-used card as the customer's DEFAULT payment method so
+    //    FetchIt can charge it for future off-session checkouts. Best-effort: the
+    //    subscription is already paid, so a save-card hiccup shouldn't strand the
+    //    user — log it and continue.
+    const paymentMethodId = paymentIntent?.paymentMethod?.id;
+    if (paymentMethodId) {
+      const { error: cardErr } = await saveCard(paymentMethodId);
+      if (cardErr) console.warn('saveCard after subscription failed:', cardErr.message);
+    }
+
+    // 4. Record the new plan on the user (mirrors the web's finalizePlan).
     await supabase.auth.updateUser({ data: { plan, plan_billing: billing } });
 
     setSaving(false);

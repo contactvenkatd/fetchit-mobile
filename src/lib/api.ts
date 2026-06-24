@@ -89,6 +89,99 @@ export async function createSubscription(params: {
 }
 
 /**
+ * The signed-in user's `profiles` row — shipping address + saved-card metadata.
+ * Mirrors the web `utils.js` Profile shape (camelCase over the snake_case table).
+ */
+export type Profile = {
+  fullName: string;
+  addressLine1: string;
+  addressLine2: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  stripeCustomerId: string | null;
+  stripePaymentMethodId: string | null;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  cardExpMonth: number | null;
+  cardExpYear: number | null;
+};
+
+// Map a raw `profiles` row → camelCase Profile (mirrors web mapProfile).
+function mapProfile(row: Record<string, unknown> | null): Profile | null {
+  if (!row) return null;
+  const str = (v: unknown) => (v ? String(v) : '');
+  const orNull = (v: unknown) => (v ? String(v) : null);
+  const numOrNull = (v: unknown) => (v == null || v === '' ? null : Number(v));
+  return {
+    fullName: str(row.full_name),
+    addressLine1: str(row.address_line1),
+    addressLine2: str(row.address_line2),
+    city: str(row.city),
+    state: str(row.state),
+    zip: str(row.zip),
+    country: str(row.country) || 'United States',
+    stripeCustomerId: orNull(row.stripe_customer_id),
+    stripePaymentMethodId: orNull(row.stripe_payment_method_id),
+    cardBrand: orNull(row.card_brand),
+    cardLast4: orNull(row.card_last4),
+    cardExpMonth: numOrNull(row.card_exp_month),
+    cardExpYear: numOrNull(row.card_exp_year),
+  };
+}
+
+/** The signed-in user's profile row, or null if they haven't saved one yet. */
+export async function getProfile(): Promise<Profile | null> {
+  const { data, error } = await supabase.from('profiles').select('*').maybeSingle();
+  if (error) {
+    console.error('getProfile failed:', error.message);
+    return null;
+  }
+  return mapProfile(data as Record<string, unknown> | null);
+}
+
+// camelCase field → `profiles` column. Only provided fields are written, so an
+// address save never clobbers card columns and vice-versa (mirrors web saveProfile).
+const PROFILE_COLUMNS: Record<string, string> = {
+  fullName: 'full_name',
+  addressLine1: 'address_line1',
+  addressLine2: 'address_line2',
+  city: 'city',
+  state: 'state',
+  zip: 'zip',
+  country: 'country',
+  stripeCustomerId: 'stripe_customer_id',
+  stripePaymentMethodId: 'stripe_payment_method_id',
+  cardBrand: 'card_brand',
+  cardLast4: 'card_last4',
+  cardExpMonth: 'card_exp_month',
+  cardExpYear: 'card_exp_year',
+};
+
+/**
+ * Upsert the caller's `profiles` row with only the provided fields. `user_id`
+ * is left to the table's `auth.uid()` default (the upsert conflict target), so —
+ * exactly as on web — we never send it from the client.
+ */
+export async function saveProfile(
+  fields: Partial<Record<keyof typeof PROFILE_COLUMNS, string | number | null>>,
+  nowIso: string,
+): Promise<{ error: { message: string } | null }> {
+  const row: Record<string, unknown> = { updated_at: nowIso };
+  for (const [camel, snake] of Object.entries(PROFILE_COLUMNS)) {
+    const v = (fields as Record<string, unknown>)[camel];
+    if (v !== undefined) row[snake] = v;
+  }
+  const { error } = await supabase.from('profiles').upsert(row, { onConflict: 'user_id' });
+  if (error) {
+    console.error('saveProfile failed:', error.message);
+    return { error: { message: error.message } };
+  }
+  return { error: null };
+}
+
+/**
  * Family sharing — thin wrapper over the `family-manage` edge function (same one
  * the web app's `invokeFamily` hits). The function identifies the caller from
  * their JWT, so a member's `leave` only ever touches their own membership: it

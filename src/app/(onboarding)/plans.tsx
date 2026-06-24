@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -54,6 +54,11 @@ const PLANS: PlanCard[] = [
 
 export default function PlansScreen() {
   const router = useRouter();
+  const { from } = useLocalSearchParams<{ from?: string }>();
+  // Onboarding enters this screen as a forward step (no back); reaching it from
+  // Account Settings' "Change Plan" passes from=account, where a back arrow lets
+  // the user return to settings.
+  const showBack = from === 'account';
   const [selectedPlan, setSelectedPlan] = useState<PlanName | null>(null);
 
   function handleContinue() {
@@ -116,6 +121,17 @@ export default function PlansScreen() {
           disabled={!selectedPlan}
         />
       </View>
+
+      {showBack ? (
+        <Pressable
+          onPress={() => router.back()}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+          style={({ pressed }) => [styles.back, pressed && styles.backPressed]}>
+          <Text style={styles.backIcon}>←</Text>
+        </Pressable>
+      ) : null}
     </Screen>
   );
 }
@@ -167,5 +183,22 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.lg,
     borderTopWidth: 1,
     borderTopColor: Colors.border,
+  },
+  back: {
+    position: 'absolute',
+    top: Spacing.sm,
+    left: Spacing.md,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  backPressed: { opacity: 0.6 },
+  backIcon: {
+    color: Colors.yellow,
+    fontSize: 28,
+    fontWeight: '600',
+    lineHeight: 28,
   },
 });

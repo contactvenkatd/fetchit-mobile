@@ -114,10 +114,21 @@ export default function RootLayout() {
                   name="join-family"
                   options={{ headerShown: false, gestureEnabled: false }}
                 />
-                <Stack.Screen name="tos" options={{ title: 'Terms of Service' }} />
+                <Stack.Screen
+                  name="tos"
+                  options={{
+                    title: 'Terms of Service',
+                    headerShown: true,
+                    headerBackVisible: true,
+                  }}
+                />
                 <Stack.Screen
                   name="privacy-policy"
-                  options={{ title: 'Privacy Policy' }}
+                  options={{
+                    title: 'Privacy Policy',
+                    headerShown: true,
+                    headerBackVisible: true,
+                  }}
                 />
                 {/* Authenticated areas: block the swipe-back gesture so a signed-in
                     user can't pop the group off the stack and land on an auth

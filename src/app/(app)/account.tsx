@@ -63,7 +63,7 @@ export default function AccountScreen() {
             <Text style={styles.planPrice}>
               {plan === 'Free' ? '$0/mo' : `$${money(perMonth)}/mo`}
             </Text>
-            <Button label="Change Plan" variant="secondary" onPress={() => router.push('/(onboarding)/plans')} />
+            <Button label="Change Plan" variant="secondary" onPress={() => router.push({ pathname: '/(onboarding)/plans', params: { from: 'account' } })} />
           </View>
 
           {/* Profile */}
