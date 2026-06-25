@@ -1,4 +1,4 @@
-import { Link, useRouter } from 'expo-router';
+import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
@@ -11,10 +11,14 @@ import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 // tos_accepted to the profiles table.)
 export default function TermsAgreementScreen() {
   const router = useRouter();
+  const { plan } = useLocalSearchParams<{ plan?: string }>();
   const [agreed, setAgreed] = useState(false);
 
   return (
-    <AuthLayout title="Before we get started" subtitle="A few quick things to agree to">
+    <AuthLayout
+      title="Before we get started"
+      subtitle="A few quick things to agree to"
+      onBack={() => router.back()}>
       <View style={styles.summary}>
         <Text style={styles.point}>• A service fee applies to every order</Text>
         <Text style={styles.point}>• Shopping data may train AI models</Text>
@@ -41,7 +45,9 @@ export default function TermsAgreementScreen() {
       <Button
         label="Continue"
         disabled={!agreed}
-        onPress={() => router.push('/(onboarding)/delivery')}
+        onPress={() =>
+          router.push({ pathname: '/(onboarding)/delivery', params: { plan } })
+        }
       />
     </AuthLayout>
   );

@@ -33,7 +33,10 @@ export default function NameScreen() {
   }
 
   return (
-    <AuthLayout title="One last thing! 🐕" subtitle="What should FetchIt call you?">
+    <AuthLayout
+      title="One last thing! 🐕"
+      subtitle="What should FetchIt call you?"
+      onBack={() => router.back()}>
       <TextField label="First name" value={first} onChangeText={setFirst} placeholder="Jane" textContentType="givenName" />
       <TextField label="Last name" value={last} onChangeText={setLast} placeholder="Shopper" textContentType="familyName" />
 

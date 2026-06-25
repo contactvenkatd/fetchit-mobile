@@ -9,8 +9,9 @@ import type { PlanName } from '@/lib/stripe';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 // Step 1 of onboarding — choose a plan. Prices mirror src/lib/stripe.ts
-// PLAN_PRICING (monthly). Free needs no card and goes straight to chat; paid
-// plans carry the chosen plan into the payment (card) step.
+// PLAN_PRICING (monthly). Every plan (Free or paid) carries the chosen plan
+// into the terms step, which forwards it to delivery where the card + any
+// subscription is handled.
 type PlanCard = {
   name: PlanName;
   price: string;
@@ -54,21 +55,16 @@ const PLANS: PlanCard[] = [
 
 export default function PlansScreen() {
   const router = useRouter();
-  const { from } = useLocalSearchParams<{ from?: string }>();
-  // Onboarding enters this screen as a forward step (no back); reaching it from
-  // Account Settings' "Change Plan" passes from=account, where a back arrow lets
-  // the user return to settings.
-  const showBack = from === 'account';
+  // mode=change means an existing user is switching plans from Account Settings —
+  // they jump straight to the plan-switch screen and never see terms/delivery/name
+  // again. The default (onboarding) flow walks plans → terms → delivery → name.
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
   const [selectedPlan, setSelectedPlan] = useState<PlanName | null>(null);
 
   function handleContinue() {
     if (!selectedPlan) return;
-    if (selectedPlan === 'Free') {
-      router.replace('/(app)/chat'); // Free needs no card step
-      return;
-    }
     router.push({
-      pathname: '/(onboarding)/payment',
+      pathname: mode === 'change' ? '/(onboarding)/payment-change' : '/(onboarding)/terms',
       params: { plan: selectedPlan },
     });
   }
@@ -122,16 +118,14 @@ export default function PlansScreen() {
         />
       </View>
 
-      {showBack ? (
-        <Pressable
-          onPress={() => router.back()}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-          style={({ pressed }) => [styles.back, pressed && styles.backPressed]}>
-          <Text style={styles.backIcon}>←</Text>
-        </Pressable>
-      ) : null}
+      <Pressable
+        onPress={() => router.back()}
+        hitSlop={12}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        style={({ pressed }) => [styles.back, pressed && styles.backPressed]}>
+        <Text style={styles.backIcon}>←</Text>
+      </Pressable>
     </Screen>
   );
 }
