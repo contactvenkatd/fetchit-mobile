@@ -90,6 +90,25 @@ export async function signOut() {
   return supabase.auth.signOut();
 }
 
+// --- Google sign-in registration flag (mirror utils.js isRegistered) --------
+//
+// Google sign-in is native (see src/app/login.tsx — GoogleSignin +
+// signInWithIdToken). We still track a `fetchit_registered` flag, set when
+// onboarding completes, NOT mere existence in auth.users — so a brand-new
+// account Supabase auto-creates on first Google sign-in stays "un-registered"
+// until the user finishes onboarding, matching the web app.
+
+/** Has this user completed FetchIt's signup before? Reads the flag WE set. */
+export function isRegistered(session: Session | null): boolean {
+  const m = meta(session) as Metadata & { fetchit_registered?: boolean };
+  return !!m.fetchit_registered;
+}
+
+/** Mark the signed-in user as a fully-registered FetchIt account (set once). */
+export async function markRegistered() {
+  return supabase.auth.updateUser({ data: { fetchit_registered: true } });
+}
+
 // --- Plan helpers (mirror utils.js getPlan/getName) ------------------------
 
 type Metadata = {

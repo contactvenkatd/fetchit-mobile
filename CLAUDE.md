@@ -84,7 +84,7 @@ src/
   components/
     AuthLayout.tsx           # logo hero + card shell for auth/onboarding
     ScreenPlaceholder.tsx    # themed stub for not-yet-ported screens
-    ui/                      # Logo, Screen, Button, TextField
+    ui/                      # Logo, Screen, Button, TextField, GoogleButton
   lib/
     supabase.ts             # client + chunked SecureStore storage adapter
     stripe.ts               # publishable key + PLAN_PRICING (mirrors web stripeClient.js)
@@ -92,6 +92,9 @@ src/
   theme/
     colors.ts               # palette, radius, spacing, font sizes
 assets/images/fetchit-logo.png   # brand badge (copied from the web app's public/)
+plugins/
+  withSceneLifecycle.js     # re-applies the iOS UIScene migration on each prebuild
+  withGoogleSignIn.js       # re-applies Google Sign-In URL scheme + Podfile use_modular_headers!
 ```
 
 ## Navigation model
@@ -119,6 +122,47 @@ while the session resolves and `<Redirect href="/login" />` when there's none.
 before treating "no session" as logged-out. Plan/name helpers (`getPlan`,
 `getPlanBilling`, `getName`, `greetingName`) read `user_metadata` and mirror the
 web `utils.js` (`getPlan` returns Free once `plan_cancels_at` passes).
+
+## Google Sign-In (native, in-app)
+Google sign-in is **native** (no browser round-trip): the
+`@react-native-google-signin/google-signin` SDK presents the system sheet,
+returns an **ID token**, and we hand it to Supabase. This is the mobile
+counterpart of the web app's browser OAuth — the web `signInWithGoogle` /
+`/auth/callback` flow does **not** apply here.
+
+- **Client IDs (two forms of the same iOS OAuth client).** The **iOS client ID**
+  `120830719857-…apps.googleusercontent.com` is passed to
+  `GoogleSignin.configure({ iosClientId })`. Its **reversed** form
+  `com.googleusercontent.apps.120830719857-…` is the iOS **URL scheme** the
+  native sheet calls back on. Keep the two in sync.
+- **Configure once at startup.** `GoogleSignin.configure(...)` runs at
+  module scope in `src/app/_layout.tsx` (the root layout, loaded on launch) —
+  **not** per button press. `src/app/login.tsx`'s "Continue with Google" button
+  (`components/ui/GoogleButton.tsx` — white surface, multicolor "G") just calls
+  `GoogleSignin.signIn()` → `supabase.auth.signInWithIdToken({ provider: 'google',
+  token: idToken })` → `/(app)/chat`. It reads the ID token from both the v13+
+  `{ data: { idToken } }` shape and the legacy flat shape, and swallows
+  `statusCodes.SIGN_IN_CANCELLED`.
+- **Survives `expo prebuild` (CNG).** `ios/` is git-ignored and regenerated, so
+  the native pieces live in plugins, **never** as hand edits to `ios/`:
+  - The **package's own** config plugin
+    (`["@react-native-google-signin/google-signin", { iosUrlScheme: "com.googleusercontent.apps.120830719857-…" }]`
+    in `app.json` `plugins`) adds the reversed-client-ID **URL scheme** to
+    `Info.plist`.
+  - **`plugins/withGoogleSignIn.js`** (also in `plugins`) re-applies
+    `use_modular_headers!` to the **Podfile** on every prebuild (required, or the
+    GoogleSignIn / GTMSessionFetcher pods fail with non-modular-header errors —
+    nothing else re-adds it) and idempotently re-adds the URL scheme as a
+    belt-and-suspenders. Verify the resolved plist with
+    `npx expo config --type introspect`.
+  - **Do NOT** put the scheme in `app.json` `ios.infoPlist.CFBundleURLTypes`:
+    setting that key makes Expo **drop** the abstract top-level
+    `scheme: fetchitmobile`, breaking the `fetchitmobile://join-family` deep link.
+    Let the plugins append the Google scheme **alongside** `fetchitmobile` instead.
+- **Build + Supabase config.** Native module → needs a **dev build**
+  (`npx expo run:ios`); not available in Expo Go. The iOS client ID must also be
+  added under **Supabase → Auth → Providers → Google → "Authorized Client IDs"**
+  or the backend rejects the native ID token.
 
 ## Status — what's built vs stubbed
 - **Fully built:** Landing (logo + tagline, Sign In/Create Account CTAs, and a

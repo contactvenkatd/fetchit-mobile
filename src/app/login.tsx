@@ -1,9 +1,14 @@
+import {
+  GoogleSignin,
+  statusCodes,
+} from '@react-native-google-signin/google-signin';
 import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { AuthLayout } from '@/components/AuthLayout';
 import { Button } from '@/components/ui/Button';
+import { GoogleButton } from '@/components/ui/GoogleButton';
 import { TextField } from '@/components/ui/TextField';
 import { supabase } from '@/lib/supabase';
 import { Colors, FontSize, Spacing } from '@/theme/colors';
@@ -19,6 +24,51 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+
+  // "Continue with Google" — native, fully in-app sign-in. The Google SDK
+  // presents its own sheet, returns an ID token, and we hand that straight to
+  // Supabase (signInWithIdToken) — no browser round-trip or deep link.
+  // GoogleSignin.configure() runs once at startup in src/app/_layout.tsx.
+  async function handleGoogle() {
+    setError('');
+    setGoogleLoading(true);
+    try {
+      const response = await GoogleSignin.signIn();
+      // google-signin v13+ wraps the result as { type, data }; older versions
+      // returned the user object directly. Read the ID token from either shape.
+      const idToken =
+        (response as { data?: { idToken?: string | null } }).data?.idToken ??
+        (response as { idToken?: string | null }).idToken ??
+        null;
+
+      if (!idToken) {
+        // No token (e.g. the user dismissed the sheet) — fail quietly.
+        setGoogleLoading(false);
+        return;
+      }
+
+      const { error: authError } = await supabase.auth.signInWithIdToken({
+        provider: 'google',
+        token: idToken,
+      });
+      if (authError) {
+        setGoogleLoading(false);
+        setError('Could not sign in with Google. Please try again.');
+        return;
+      }
+
+      setGoogleLoading(false);
+      router.replace('/(app)/chat');
+    } catch (e) {
+      setGoogleLoading(false);
+      // User-cancelled (closed the sheet) is not an error worth surfacing.
+      if ((e as { code?: string })?.code === statusCodes.SIGN_IN_CANCELLED) {
+        return;
+      }
+      setError('Could not sign in with Google. Please try again.');
+    }
+  }
 
   async function handleLogin() {
     setError('');
@@ -91,6 +141,14 @@ export default function LoginScreen() {
           </Link>
         </View>
       }>
+      <GoogleButton onPress={handleGoogle} loading={googleLoading} disabled={loading} />
+
+      <View style={styles.divider}>
+        <View style={styles.dividerLine} />
+        <Text style={styles.dividerText}>or</Text>
+        <View style={styles.dividerLine} />
+      </View>
+
       <TextField
         label="Email"
         value={email}
@@ -132,6 +190,14 @@ const styles = StyleSheet.create({
   forgot: { alignSelf: 'flex-end' },
   forgotText: { color: Colors.textFaint, fontSize: FontSize.sm },
   error: { color: Colors.error, fontSize: FontSize.sm, textAlign: 'center' },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    marginVertical: Spacing.xs,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
+  dividerText: { color: Colors.textFaint, fontSize: FontSize.sm },
   footerRow: { flexDirection: 'row', alignItems: 'center' },
   footerText: { color: Colors.textMuted, fontSize: FontSize.sm },
   link: { color: Colors.yellow, fontSize: FontSize.sm, fontWeight: '700' },

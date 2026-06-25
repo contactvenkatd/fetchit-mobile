@@ -1,3 +1,4 @@
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import { StripeProvider } from '@stripe/stripe-react-native';
 import {
   DarkTheme,
@@ -15,6 +16,16 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider } from '@/lib/auth';
 import { STRIPE_PUBLISHABLE_KEY } from '@/lib/stripe';
 import { Colors } from '@/theme/colors';
+
+// Configure native Google Sign-In once, at app startup — `_layout` is the root
+// and loads on launch, so this module-scope call runs a single time before any
+// screen mounts (instead of re-configuring on every button press in login.tsx).
+// `iosClientId` is the iOS OAuth client; its reversed form is the URL scheme set
+// up by plugins/withGoogleSignIn.js. Keep the two in sync.
+GoogleSignin.configure({
+  iosClientId:
+    '120830719857-cut021t8gjpeha2fbb58pa89fdaunt29.apps.googleusercontent.com',
+});
 
 // A FetchIt-flavored dark navigation theme so headers, backgrounds, and the
 // back-swipe scene all sit on charcoal with yellow accents.
