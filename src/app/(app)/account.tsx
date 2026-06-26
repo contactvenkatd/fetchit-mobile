@@ -21,6 +21,7 @@ const LINKS: { label: string; href: Href; icon: string }[] = [
   { label: 'Auto-Reorder', href: '/(app)/auto-reorder', icon: '🔁' },
   { label: 'Family Sharing', href: '/(app)/family-sharing', icon: '👨‍👩‍👧' },
   { label: 'Cards & Address', href: '/(app)/cards-address', icon: '💳' },
+  { label: 'Change Password', href: '/(app)/change-password', icon: '🔑' },
   { label: 'Terms of Service', href: '/tos', icon: '📜' },
   { label: 'Privacy Policy', href: '/privacy-policy', icon: '🔒' },
 ];

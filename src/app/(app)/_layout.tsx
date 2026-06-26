@@ -57,6 +57,9 @@ export default function AppLayout() {
         name="cards-address"
         options={{ title: 'Cards & Address', headerShown: true, headerBackVisible: true }}
       />
+      {/* Change-password drives its own header (AuthLayout back arrow), so no
+          native header — matches the other password screens. */}
+      <Stack.Screen name="change-password" options={{ headerShown: false }} />
     </Stack>
   );
 }
