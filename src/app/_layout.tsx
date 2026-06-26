@@ -25,6 +25,12 @@ import { Colors } from '@/theme/colors';
 GoogleSignin.configure({
   iosClientId:
     '120830719857-cut021t8gjpeha2fbb58pa89fdaunt29.apps.googleusercontent.com',
+  // Android: the native sheet returns an ID token whose audience is the *Web*
+  // OAuth client, so `webClientId` is required there (iOS uses `iosClientId`).
+  // Replace with the Web OAuth client ID, and add it (plus the Android client)
+  // to Supabase → Auth → Providers → Google → Authorized Client IDs.
+  webClientId:
+    '120830719857-n4m35cvauufv3abloq60gu263h0v3kld.apps.googleusercontent.com',
 });
 
 // A FetchIt-flavored dark navigation theme so headers, backgrounds, and the
@@ -42,17 +48,69 @@ const FetchItTheme = {
   },
 };
 
-// Pull the `token` out of an incoming deep link, whichever way the URL parses.
-// A custom-scheme URL (`fetchitmobile://join-family?token=…`) can land with
-// `join-family` as the path OR the hostname depending on the slashes, so check
-// both and strip any leading slash.
+// The route segment of a custom-scheme deep link. `fetchitmobile://<route>?…`
+// can land with `<route>` as the path OR the hostname depending on the slashes,
+// so check both and strip any leading slash.
+function linkRoute(parsed: ReturnType<typeof Linking.parse>): string {
+  return (parsed.path ?? parsed.hostname ?? '').replace(/^\/+/, '');
+}
+
+// Pull the `token` out of an incoming family-invite deep link
+// (`fetchitmobile://join-family?token=…`).
 function parseJoinToken(url: string): string | null {
   const parsed = Linking.parse(url);
-  const route = (parsed.path ?? parsed.hostname ?? '').replace(/^\/+/, '');
-  if (route !== 'join-family') return null;
+  if (linkRoute(parsed) !== 'join-family') return null;
   const raw = parsed.queryParams?.token;
   const token = Array.isArray(raw) ? raw[0] : raw;
   return token ? String(token) : null;
+}
+
+// Tiny `a=b&c=d` parser (decodes values). Used for the URL *fragment*, which
+// `Linking.parse` does not surface — the implicit-flow recovery tokens arrive
+// there as `#access_token=…&refresh_token=…&type=recovery`.
+function parseKeyVals(str: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const pair of str.split('&')) {
+    if (!pair) continue;
+    const eq = pair.indexOf('=');
+    const k = decodeURIComponent(eq >= 0 ? pair.slice(0, eq) : pair);
+    if (k) out[k] = eq >= 0 ? decodeURIComponent(pair.slice(eq + 1)) : '';
+  }
+  return out;
+}
+
+// Pull the recovery credentials out of a password-reset deep link
+// (`fetchitmobile://reset-password…`). Supabase can return these three ways and
+// we handle all of them so the flow is robust to the client's auth `flowType`:
+//   • implicit (this project's default): tokens in the URL hash fragment
+//     `#access_token=…&refresh_token=…&type=recovery`
+//   • PKCE: an authorization `?code=…` query param
+//   • expired/used link: an `?error…`/`#error…` param
+// Returns the params object to forward to /reset-password, or null if not a
+// reset link. (Returned shape is always string→string so it's valid route params.)
+function parseRecovery(url: string): Record<string, string> | null {
+  const parsed = Linking.parse(url);
+  if (linkRoute(parsed) !== 'reset-password') return null;
+
+  const frag = parseKeyVals(url.includes('#') ? url.slice(url.indexOf('#') + 1) : '');
+  const query: Record<string, string> = {};
+  for (const [k, v] of Object.entries(parsed.queryParams ?? {})) {
+    query[k] = Array.isArray(v) ? (v[0] ?? '') : String(v ?? '');
+  }
+
+  const error =
+    query.error_description || query.error_code || query.error ||
+    frag.error_description || frag.error_code || frag.error;
+  if (error) return { error };
+
+  if (frag.access_token && frag.refresh_token) {
+    return { access_token: frag.access_token, refresh_token: frag.refresh_token };
+  }
+  if (query.code) return { code: query.code };
+
+  // A reset link with no usable credentials — still route to /reset-password so
+  // it can show the "expired link" state rather than silently doing nothing.
+  return { error: 'invalid_link' };
 }
 
 export default function RootLayout() {
@@ -66,10 +124,16 @@ export default function RootLayout() {
   const navState = useRootNavigationState();
   const navReady = !!navState?.key;
   const pendingToken = useRef<string | null>(null);
+  const pendingRecovery = useRef<Record<string, string> | null>(null);
 
-  // Capture the token from both a warm event and a cold start.
+  // Capture the deep link from both a warm event and a cold start.
   useEffect(() => {
     const handleUrl = ({ url }: { url: string }) => {
+      const recovery = parseRecovery(url);
+      if (recovery) {
+        pendingRecovery.current = recovery;
+        return;
+      }
       const token = parseJoinToken(url);
       if (token) pendingToken.current = token;
     };
@@ -80,9 +144,21 @@ export default function RootLayout() {
     return () => sub.remove();
   }, []);
 
-  // Once navigation is mounted, route any captured token to /join-family.
+  // Once navigation is mounted, route any captured deep link.
   useEffect(() => {
     if (!navReady) return;
+
+    // Password recovery takes precedence and uses `replace`: we land on the
+    // reset screen and let IT establish the recovery session, so no session
+    // exists while index.tsx is mounted (which would otherwise redirect a
+    // "logged-in" recovery straight to /chat). See reset-password.tsx.
+    const recovery = pendingRecovery.current;
+    if (recovery) {
+      pendingRecovery.current = null;
+      router.replace({ pathname: '/reset-password', params: recovery });
+      return;
+    }
+
     const token = pendingToken.current;
     if (!token) return;
     pendingToken.current = null;
@@ -116,6 +192,19 @@ export default function RootLayout() {
                 />
                 <Stack.Screen
                   name="otp"
+                  options={{ headerShown: false, gestureEnabled: false }}
+                />
+                {/* Public forgot-password sender (request a reset-link email).
+                    Back-swipe stays enabled so the user can return to login. */}
+                <Stack.Screen
+                  name="forgot-password"
+                  options={{ headerShown: false }}
+                />
+                {/* Reset-link landing (deep link target). Block the back-swipe so
+                    the recovery flow can't be rewound mid-way; the screen drives
+                    its own navigation (→ /chat on success, → /login if expired). */}
+                <Stack.Screen
+                  name="reset-password"
                   options={{ headerShown: false, gestureEnabled: false }}
                 />
                 {/* Public invite-acceptance landing (deep link target). Not in
