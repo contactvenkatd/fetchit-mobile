@@ -52,8 +52,12 @@
         }
       ],
       "./plugins/withSceneLifecycle",
-      "./plugins/withGoogleSignIn"
+      "./plugins/withGoogleSignIn",
+      "./plugins/withPlayIntegrity"
     ],
+    "extra": {
+      "playIntegrityCloudProjectNumber": ""
+    },
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true

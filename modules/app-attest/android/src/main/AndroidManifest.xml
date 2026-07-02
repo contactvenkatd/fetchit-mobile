@@ -1,0 +1,4 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <!-- No extra permissions: Play Integrity only needs INTERNET, which the app
+       already declares. -->
+</manifest>

@@ -57,10 +57,10 @@ src/
                              #   Sign In (/login) + Create Account (/signup) buttons,
                              #   "Learn More" → slide-up bottom sheet (RN Modal).
                              #   Redirects to chat if logged in.
-    login.tsx                # ✅ password check → signOut → signInWithOtp → /otp (login)
-    signup.tsx               # ✅ signUp → /otp (signup); name/password collected here
-    otp.tsx                  # ✅ 8-digit email OTP — params {email, mode}; verifyOtp
-                             #   (type 'email' for login, 'signup' for signup),
+    login.tsx                # ✅ PASSWORDLESS on native: email → auth-gateway (attestation) → /otp
+    signup.tsx               # ✅ email+password → auth-gateway (attestation) → /otp (signup)
+    otp.tsx                  # ✅ 8-digit email OTP — params {email, mode}; verifyOtp type 'email'
+                             #   (both flows use magic-link OTPs); resend via auth-gateway.
                              #   auto-advance/backspace boxes, shake on error, 30s resend.
                              #   signup → onboarding, login → chat.
     tos.tsx                  # public Terms of Service
@@ -89,12 +89,31 @@ src/
     supabase.ts             # client + chunked SecureStore storage adapter
     stripe.ts               # publishable key + PLAN_PRICING (mirrors web stripeClient.js)
     auth.tsx                # AuthProvider/useAuth + signIn/signUp/signOut + getPlan/getName
+    nativeAuth.ts           # native signup/login/resend via the attestation auth-gateway
+  attestation.ts            # App Attest (iOS) / Play Integrity (Android) client — see below
   theme/
     colors.ts               # palette, radius, spacing, font sizes
 assets/images/fetchit-logo.png   # brand badge (copied from the web app's public/)
+modules/
+  app-attest/               # LOCAL Expo native module (autolinked from ./modules)
+    expo-module.config.json # exposes ONE JS name "AppAttest" on apple + android
+    index.ts                # typed native interface (requireOptionalNativeModule)
+    ios/AppAttestModule.swift        # DCAppAttestService wrapper (Apple App Attest)
+    ios/AppAttest.podspec
+    android/build.gradle             # adds com.google.android.play:integrity
+    .../AppAttestModule.kt           # Play Integrity Standard API wrapper
 plugins/
   withSceneLifecycle.js     # re-applies the iOS UIScene migration on each prebuild
   withGoogleSignIn.js       # re-applies Google Sign-In URL scheme + Podfile use_modular_headers!
+  withPlayIntegrity.js      # injects the Play Integrity cloud project number as Android meta-data
+supabase/                   # REFERENCE files to PASTE into the Supabase dashboard (not deployed from here)
+  migrations/attested_devices.sql
+  migrations/attestation_challenges.sql
+  migrations/email_exists.sql
+  functions/attestation-challenge/index.ts
+  functions/verify-app-attest/index.ts
+  functions/verify-play-integrity/index.ts
+  functions/auth-gateway/index.ts       # native auth path (attestation ↔ Turnstile)
 ```
 
 ## Navigation model
@@ -164,15 +183,147 @@ counterpart of the web app's browser OAuth — the web `signInWithGoogle` /
   added under **Supabase → Auth → Providers → Google → "Authorized Client IDs"**
   or the backend rejects the native ID token.
 
+## App Attest (iOS) / Play Integrity (Android)
+Device attestation proves requests come from a genuine, unmodified build of the
+app on real hardware. **Implemented as a LOCAL Expo native module, not
+Capacitor.** Capacitor wraps a *web* app in a WebView and needs a `--web-dir`;
+this project is Expo RN (native runtime, `main: expo-router/entry`, no web
+bundle), so `Capacitor.getPlatform()` / Capacitor plugins don't exist at
+runtime here. The RN-native equivalent — an Expo module in `modules/app-attest`
+keyed off `Platform.OS` — provides the same capability and survives
+`expo prebuild` like the other `plugins/`.
+
+**Client flow (`src/attestation.ts`, exported `attest(action)`):**
+1. `Platform.OS === 'web'` or the native module isn't linked → **no-op**
+   (`status: 'skipped'`).
+2. Fetch a single-use challenge from `attestation-challenge`.
+3. **iOS** — `DCAppAttestService` via `modules/app-attest`:
+   - `generateKey()` once (key id persisted in the **Keychain**);
+   - first time: `attestKey(keyId, challenge)` → base64 attestation → verified by
+     `verify-app-attest` (registration). A per-key "registered" flag is stored in
+     SecureStore so this runs once.
+   - thereafter: `generateAssertion(keyId, requestData)` → per-request assertion
+     (the native side also persists a local **sign-counter** mirror) → verified by
+     `verify-app-attest`.
+   - `DCError.featureUnsupported` (simulators / old hardware) is surfaced as
+     `ERR_UNSUPPORTED` → `status: 'skipped'` (never blocks).
+4. **Android** — Play Integrity **Standard API** via `modules/app-attest`:
+   `requestIntegrityToken(challenge)` → signed token → verified by
+   `verify-play-integrity`.
+5. Returns `{ status: 'ok' | 'skipped' | 'failed', platform, token }`.
+
+`attest(action)` (self-verifying, used by checkout) and `buildAttestation(action)`
+(handshake only — the caller verifies) are the two entry points. Because a
+challenge is **single-use**, whichever side calls verify-* consumes it, so the
+auth flow uses `buildAttestation` and lets the gateway verify.
+
+**Where it's wired:**
+- **signup / login / OTP-resend** — routed through the **auth gateway** (see next
+  section): `buildAttestation` → `auth-gateway` verifies + performs the auth op.
+  This is a **hard gate** — no attestation means the gateway rejects (there is no
+  fallback path on native).
+- **checkout** (`(onboarding)/delivery.tsx`) — the **blocking** gate via
+  `attest('checkout')`: user is authenticated, so a definitive `status: 'failed'`
+  **stops checkout**; `skipped` (simulator/unsupported) and `ok` proceed.
+
+**Fail policy (server verify functions):** **fail-OPEN on DB errors** (a Supabase
+outage returns `{ verified: true }` so nobody is locked out) and **fail-CLOSED on
+failed attestation** (bad crypto/verdict returns `{ verified: false }`). Missing
+Google config in `verify-play-integrity` also fails open (rollout-friendly).
+
+**Tables** (`supabase/migrations/`, paste into the SQL editor; RLS scoped to the
+owning user, `rate_limits.sql` style — writes are service-role from the edge
+functions):
+- `attested_devices` — one row per verified device: `platform`, `key_id`,
+  `public_key` (iOS SPKI), `sign_count` (authoritative counter), `last_verdict`
+  (Play Integrity JSON). `user_id` is nullable (signup-time registration).
+- `attestation_challenges` — short-lived single-use nonces (5-min expiry,
+  `consumed` flag) + a `purge_expired_attestation_challenges()` helper.
+
+**Edge functions** (`supabase/functions/`, create each in the dashboard and paste
+the `index.ts`):
+- `attestation-challenge` — mints a 32-byte challenge; optional auth.
+- `verify-app-attest` — full App Attest verification (CBOR decode via `cbor-x`,
+  x5c chain to the **Apple App Attest Root CA** fetched at runtime, nonce binding,
+  `key_id = SHA256(pubkey)`, rpId hash, counter). Handles both the attestation
+  (registration) and assertion (per-request, strictly-increasing counter) shapes.
+- `verify-play-integrity` — mints a Google OAuth token from a service account
+  (RS256 JWT), calls `…:decodeIntegrityToken`, and requires
+  `appRecognitionVerdict = PLAY_RECOGNIZED` + `MEETS_DEVICE_INTEGRITY` +
+  matching `requestHash`.
+- `auth-gateway` — the native auth path (see next section).
+
+## Native auth gateway (Turnstile ↔ attestation)
+Supabase's built-in **CAPTCHA (Turnstile) stays ON project-wide** — that's what
+protects the **web** app's auth (GoTrue verifies `captchaToken` itself). RN can't
+render Turnstile, so native **can't** call the captcha-gated GoTrue endpoints
+(`signUp` / `signInWithOtp` / `resend`) directly — they'd fail `captcha_failed`.
+So native auth goes through **`auth-gateway`** instead, gated by **attestation**
+rather than Turnstile. The two paths are **mutually exclusive by construction**:
+- **web** → GoTrue + Turnstile (the gateway is never called), and
+- **native** → `auth-gateway` + App Attest / Play Integrity (no Turnstile).
+
+Flow (`src/lib/nativeAuth.ts` → `auth-gateway`):
+1. Client `buildAttestation()` → payload; POST to `auth-gateway` with the payload
+   (never a Turnstile token). **No attestation → the gateway rejects (403).**
+2. Gateway verifies the payload by invoking `verify-app-attest` /
+   `verify-play-integrity` (consuming the single-use challenge once), rate-limits
+   per IP + email (`rl_check`), then runs the auth op with **admin APIs** (which
+   are **captcha-exempt**): `admin.createUser` (signup) and
+   `admin.generateLink({ type: 'magiclink' })` to mint the one-time code, emailed
+   directly via Resend.
+3. Client verifies the code on `otp.tsx` with `verifyOtp({ type: 'email' })` —
+   **not** captcha-gated, so it runs directly against GoTrue.
+
+**Native login is PASSWORDLESS.** There is no captcha-free way to verify a
+password server-side (`signInWithPassword` itself demands a captcha token), so
+native login = **email one-time code + device attestation**. Signup still stores
+a password (used for **web** login); it just isn't a native login factor.
+`login.tsx` collects only an email; `email_exists()` stops login from creating
+accounts. **Native auth therefore requires a physical device** (App Attest is
+unavailable on the Simulator — you can't sign up/in there).
+
+> Still on GoTrue directly (not yet gatewayed): **forgot-password** and in-app
+> **change-password**. Both are captcha-gated, so they remain blocked on native
+> until moved behind the gateway — a follow-up. Native login being passwordless
+> makes forgot-password non-essential on native.
+
+**Manual setup checklist** (nothing here is auto-deployed from the mobile repo):
+1. **Keep project CAPTCHA ON** (Auth → Settings → Turnstile) — this protects web
+   and is the reason native uses the gateway. Do **not** turn it off.
+2. **SQL editor:** run `attested_devices.sql`, `attestation_challenges.sql`,
+   `email_exists.sql`, and (if not already present) `rate_limits.sql`.
+3. **Edge functions:** create `attestation-challenge`, `verify-app-attest`,
+   `verify-play-integrity`, `auth-gateway`; paste each `index.ts`. **Turn "Verify
+   JWT" OFF** for all four (they must accept anonymous pre-session calls and
+   enforce their own attestation/rate-limit checks — matches the app's other
+   functions, which are already invoked with the opaque `sb_publishable_` key).
+4. **Edge function secrets:** `APPLE_APP_ID` = `<TeamID>.com.anonymous.fetchit-mobile`,
+   `APPLE_ATTEST_ENV` = `development` for dev-build testing / `production` for
+   TestFlight+App Store; `ANDROID_PACKAGE_NAME` = `com.anonymous.fetchitmobile`,
+   `GOOGLE_SERVICE_ACCOUNT_JSON` = a service account with the **Play Integrity
+   API** enabled (JSON pasted whole); `RESEND_API_KEY` = the same Resend key
+   `send-email` uses (the gateway emails the OTP itself).
+5. **iOS:** add the **App Attest** capability to the target (Xcode → Signing &
+   Capabilities) and rebuild with `npx expo run:ios` on a **physical device**.
+6. **Android:** enable **Play Integrity API** in the Play Console (link a Google
+   Cloud project), then set `expo.extra.playIntegrityCloudProjectNumber` in
+   `app.json` (the linked GCP **project number**) — `plugins/withPlayIntegrity.js`
+   writes it into the manifest on prebuild. Rebuild with `npx expo run:android`.
+   Standard-API tokens only decode for an app **recognized by Play** (internal
+   testing track or later).
+7. **Dev build required** either way — the native module isn't in Expo Go.
+
 ## Status — what's built vs stubbed
 - **Fully built:** Landing (logo + tagline, Sign In/Create Account CTAs, and a
   "Learn More" slide-up bottom sheet — built with RN's `Modal animationType="slide"`,
-  no extra deps), **Login** (password verify → `signOut` → `signInWithOtp` → OTP,
-  an email-code 2FA step), **OTP** (`otp.tsx` — 8-box email-code entry with
-  auto-advance, backspace nav, paste/one-time-code autofill, shake-on-error, and
-  a 30s resend cooldown; `verifyOtp` type is `email` for login / `signup` for
-  signup), **Signup** (creates the account then routes to OTP for email
-  verification), the auth/theme/navigation foundation, Supabase client + auth context,
+  no extra deps), **Login** (native passwordless: email → attestation-gated
+  `auth-gateway` → email-code sign-in), **OTP** (`otp.tsx` — 8-box email-code
+  entry with auto-advance, backspace nav, paste/one-time-code autofill,
+  shake-on-error, and a 30s resend cooldown routed through `auth-gateway`;
+  `verifyOtp` type `email` for both flows), **Signup** (email+password →
+  `auth-gateway` creates the account and routes to OTP), the auth/theme/navigation
+  foundation, Supabase client + auth context,
   Stripe config, and a working Chat shell (top bar, empty state with suggestion
   chips, message input with a mocked assistant reply — no real AI/product cards
   yet). Account Settings has a real plan card, profile, navigation hub, and a

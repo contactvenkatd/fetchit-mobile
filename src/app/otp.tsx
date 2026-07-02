@@ -16,6 +16,7 @@ import {
 
 import { Logo } from '@/components/ui/Logo';
 import { Screen } from '@/components/ui/Screen';
+import { gatewayResend } from '@/lib/nativeAuth';
 import { supabase } from '@/lib/supabase';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
@@ -72,11 +73,13 @@ export default function OtpScreen() {
     setVerifying(true);
     setError('');
 
+    // Both signup and login now use magic-link OTPs minted by the auth-gateway
+    // (admin.generateLink type "magiclink"), which verify with type "email".
+    // verifyOtp is NOT captcha-gated, so it runs directly against GoTrue.
     const { error: otpError } = await supabase.auth.verifyOtp({
       email,
       token: code,
-      // Login uses the email-OTP flow; signup confirms via the signup token.
-      type: mode === 'login' ? 'email' : 'signup',
+      type: 'email',
     });
 
     setVerifying(false);
@@ -147,16 +150,15 @@ export default function OtpScreen() {
     setResending(true);
     setError('');
 
-    // Signup confirmation vs. email-OTP login use different Supabase calls.
-    const { error: resendError } =
-      mode === 'login'
-        ? await supabase.auth.signInWithOtp({ email })
-        : await supabase.auth.resend({ type: 'signup', email });
+    // Re-send through the attestation-gated gateway (GoTrue's resend endpoints
+    // are captcha-gated and unreachable from RN). A fresh device attestation is
+    // built inside gatewayResend for each retry.
+    const res = await gatewayResend(email);
 
     setResending(false);
 
-    if (resendError) {
-      setError('Could not resend the code. Please try again in a moment.');
+    if (!res.ok) {
+      setError(res.message || 'Could not resend the code. Please try again in a moment.');
       return;
     }
     setDigits(EMPTY);

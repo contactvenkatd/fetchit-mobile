@@ -12,6 +12,7 @@ import {
   saveCard,
   saveProfile,
 } from '@/lib/api';
+import { attest } from '@/attestation';
 import { supabase } from '@/lib/supabase';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
@@ -114,6 +115,18 @@ export default function DeliveryScreen() {
       return;
     }
     setSavingCard(true);
+
+    // Device attestation gate. The user is authenticated here, so this is the
+    // strong, BLOCKING check: a definitive attestation failure ('failed')
+    // stops checkout. 'skipped' (web, simulator, unsupported hardware) and 'ok'
+    // both proceed — we only block a device that produced a token the server
+    // rejected. (The verify functions fail OPEN on their own DB errors.)
+    const attestation = await attest('checkout');
+    if (attestation.status === 'failed') {
+      setError("We couldn't verify this device. Please try again.");
+      setSavingCard(false);
+      return;
+    }
 
     if (isPaid) {
       // 1. Server reuses/creates the customer + an incomplete subscription and

@@ -1,0 +1,93 @@
+// Native auth via the attestation gateway.
+//
+// Because this project keeps Supabase's project-wide CAPTCHA **on** (so the web
+// app's Turnstile protection is untouched), the mobile app cannot call the
+// captcha-gated GoTrue endpoints (signUp / signInWithOtp / resend) directly —
+// RN can't render Turnstile, so those return `captcha_failed`. Instead, native
+// auth routes through the `auth-gateway` edge function, which is gated by App
+// Attest / Play Integrity and mints the email OTP server-side via the admin API
+// (captcha-exempt), emailing it directly.
+//
+// This makes web and native mutually exclusive by construction:
+//   • web    → GoTrue + Turnstile (unchanged), and
+//   • native → auth-gateway + attestation (here).
+//
+// Native login is **passwordless**: signup still sets a password (used for web
+// login), but native login is email + attestation + one-time code. There is no
+// captcha-free way to verify a password server-side, so the email OTP + device
+// attestation are the factors.
+//
+// OTP verification itself (otp.tsx → supabase.auth.verifyOtp) is NOT
+// captcha-gated, so it still runs directly against GoTrue.
+import { buildAttestation, type AttestAction } from '@/attestation';
+import { supabase } from '@/lib/supabase';
+
+export type NativeAuthResult =
+  | { ok: true }
+  | { ok: false; message: string; code?: string };
+
+// Supabase FunctionsHttpError carries the Response on `.context`; the gateway
+// puts a human message on `{ error }`. Dig it out, else stay generic.
+async function readFnError(error: unknown, fallback: string): Promise<string> {
+  const e = error as { message?: string; context?: { json?: () => Promise<unknown> } };
+  let message = e?.message || fallback;
+  try {
+    const body = (await e?.context?.json?.()) as { error?: string } | undefined;
+    if (body?.error) message = body.error;
+  } catch {
+    /* keep the generic message */
+  }
+  return message;
+}
+
+const DEVICE_UNVERIFIED =
+  "We couldn't verify this device. App Attest requires a physical device — this won't work on a Simulator.";
+
+async function invokeGateway(
+  action: 'signup' | 'login' | 'resend',
+  extra: Record<string, unknown>,
+  attestAction: AttestAction,
+): Promise<NativeAuthResult> {
+  // Build (but don't verify) the attestation — the gateway verifies it.
+  const att = await buildAttestation(attestAction);
+  if (att.status !== 'ok') {
+    // 'skipped' (simulator / unsupported / server unreachable) and 'failed'
+    // both mean we can't present a device proof → the gateway would reject.
+    return { ok: false, message: DEVICE_UNVERIFIED, code: 'attestation_unavailable' };
+  }
+
+  const { data, error } = await supabase.functions.invoke('auth-gateway', {
+    body: {
+      action,
+      ...extra,
+      platform: att.payload.platform,
+      attestation: att.payload.verify,
+    },
+  });
+
+  if (error) {
+    return { ok: false, message: await readFnError(error, 'Something went wrong. Please try again.') };
+  }
+  if (data?.error) {
+    return { ok: false, message: data.error as string, code: data.code as string | undefined };
+  }
+
+  // Server confirmed → persist the iOS "registered" flag (no-op otherwise).
+  await att.onVerified();
+  return { ok: true };
+}
+
+/** Create the account (server-side, attestation-gated) and email the confirm code. */
+export function gatewaySignup(email: string, password: string): Promise<NativeAuthResult> {
+  return invokeGateway('signup', { email, password }, 'signup');
+}
+
+/** Email a login code to an existing account (passwordless + attestation-gated). */
+export function gatewayLogin(email: string): Promise<NativeAuthResult> {
+  return invokeGateway('login', { email }, 'login');
+}
+
+/** Re-send the current flow's one-time code (used by the OTP screen's resend). */
+export function gatewayResend(email: string): Promise<NativeAuthResult> {
+  return invokeGateway('resend', { email }, 'login');
+}

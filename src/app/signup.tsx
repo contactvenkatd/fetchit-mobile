@@ -10,7 +10,8 @@ import { AuthLayout } from '@/components/AuthLayout';
 import { Button } from '@/components/ui/Button';
 import { GoogleButton } from '@/components/ui/GoogleButton';
 import { TextField } from '@/components/ui/TextField';
-import { isRegistered, signUp } from '@/lib/auth';
+import { isRegistered } from '@/lib/auth';
+import { gatewaySignup } from '@/lib/nativeAuth';
 import { supabase } from '@/lib/supabase';
 import { Colors, FontSize, Spacing } from '@/theme/colors';
 
@@ -86,33 +87,22 @@ export default function SignupScreen() {
     }
 
     setLoading(true);
-    const { data, error: signUpError } = await signUp(email.trim(), password);
+    // Native signup goes through the attestation-gated auth-gateway (project
+    // CAPTCHA is on, so RN can't call GoTrue signUp directly). The gateway
+    // verifies App Attest / Play Integrity, creates the account server-side, and
+    // emails the confirmation code; we then route to the OTP screen.
+    const res = await gatewaySignup(email.trim(), password);
     setLoading(false);
 
-    console.log('signUp data:', JSON.stringify(data));
-    console.log('signUp error:', JSON.stringify(signUpError));
-
-    if (signUpError) {
-      const msg = signUpError.message.toLowerCase();
-      if (msg.includes('already') || msg.includes('registered')) {
-        setError('An account already exists with this email. Please sign in.');
-      } else {
-        setError(signUpError.message);
-      }
+    if (!res.ok) {
+      setError(res.message);
       return;
     }
 
-    // Email verification is ON → signUp returns no session. Send the user to
-    // the OTP screen to enter the 8-digit code from their email.
-    if (!data.session) {
-      router.push({
-        pathname: '/otp',
-        params: { email: email.trim(), mode: 'signup' },
-      });
-      return;
-    }
-    // If confirmation were ever disabled, route straight into onboarding.
-    router.replace('/(onboarding)/plans');
+    router.push({
+      pathname: '/otp',
+      params: { email: email.trim(), mode: 'signup' },
+    });
   }
 
   return (

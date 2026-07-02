@@ -4,12 +4,13 @@ import {
 } from '@react-native-google-signin/google-signin';
 import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AuthLayout } from '@/components/AuthLayout';
 import { Button } from '@/components/ui/Button';
 import { GoogleButton } from '@/components/ui/GoogleButton';
 import { TextField } from '@/components/ui/TextField';
+import { gatewayLogin } from '@/lib/nativeAuth';
 import { supabase } from '@/lib/supabase';
 import { Colors, FontSize, Spacing } from '@/theme/colors';
 
@@ -21,7 +22,6 @@ export default function LoginScreen() {
   // forwarded through OTP so we can resume accepting the invite after sign-in.
   const { joinToken } = useLocalSearchParams<{ joinToken?: string }>();
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
@@ -76,43 +76,23 @@ export default function LoginScreen() {
       setError('Please enter a valid email');
       return;
     }
-    if (!password) {
-      setError('Please enter your password');
-      return;
-    }
 
     setLoading(true);
     const clean = email.trim();
 
-    // 1. Verify the password is correct (this transiently signs the user in).
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: clean,
-      password,
-    });
-    if (signInError) {
-      setLoading(false);
-      // Mirror the web app's friendly mapping of Supabase auth errors.
-      const msg = signInError.message.toLowerCase();
-      if (msg.includes('confirm') || msg.includes('not confirmed')) {
-        setError('Please verify your email before signing in');
-      } else {
-        setError('Incorrect email or password');
-      }
-      return;
-    }
-
-    // 2. Drop that session — login completes only after the email code (2FA).
-    await supabase.auth.signOut();
-
-    // 3. Send the one-time code to an existing account (never create one here).
-    const { error: otpError } = await supabase.auth.signInWithOtp({
-      email: clean,
-      options: { shouldCreateUser: false },
-    });
+    // Native login is passwordless: the attestation-gated auth-gateway verifies
+    // the device and emails a one-time code to the existing account (project
+    // CAPTCHA is on, so RN can't call GoTrue's signInWithOtp directly). The
+    // email code + device attestation are the sign-in factors.
+    const res = await gatewayLogin(clean);
     setLoading(false);
 
-    if (otpError) {
-      setError('Could not send a verification code. Please try again.');
+    if (!res.ok) {
+      if (res.code === 'no_account') {
+        setError('No account found for this email. Create one first.');
+      } else {
+        setError(res.message);
+      }
       return;
     }
 
@@ -131,7 +111,7 @@ export default function LoginScreen() {
   return (
     <AuthLayout
       title="Welcome back"
-      subtitle="Sign in to keep fetching deals"
+      subtitle="Enter your email and we'll send a sign-in code"
       onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
       footer={
         <View style={styles.footerRow}>
@@ -158,37 +138,18 @@ export default function LoginScreen() {
         autoComplete="email"
         keyboardType="email-address"
         textContentType="emailAddress"
-      />
-      <TextField
-        label="Password"
-        value={password}
-        onChangeText={setPassword}
-        placeholder="Your password"
-        autoCapitalize="none"
-        autoComplete="password"
-        textContentType="password"
-        secureToggle
         onSubmitEditing={handleLogin}
         returnKeyType="go"
       />
 
-      <Pressable
-        onPress={() => router.push('/forgot-password')}
-        hitSlop={6}
-        style={styles.forgot}>
-        <Text style={styles.forgotText}>Forgot password?</Text>
-      </Pressable>
-
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
-      <Button label="Sign In" onPress={handleLogin} loading={loading} />
+      <Button label="Send sign-in code" onPress={handleLogin} loading={loading} />
     </AuthLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  forgot: { alignSelf: 'flex-end' },
-  forgotText: { color: Colors.textFaint, fontSize: FontSize.sm },
   error: { color: Colors.error, fontSize: FontSize.sm, textAlign: 'center' },
   divider: {
     flexDirection: 'row',
