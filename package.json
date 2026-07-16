@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@expo/metro-runtime": "^57.0.5",
     "@expo/ui": "~56.0.18",
     "@react-native-google-signin/google-signin": "^16.1.2",
     "@stripe/stripe-react-native": "0.64.0",
