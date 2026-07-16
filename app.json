@@ -9,7 +9,10 @@
     "userInterfaceStyle": "dark",
     "ios": {
       "icon": "./assets/expo.icon",
-      "bundleIdentifier": "com.anonymous.fetchit-mobile"
+      "bundleIdentifier": "ai.compreo.fetchit",
+      "entitlements": {
+        "com.apple.developer.devicecheck.appattest-environment": "development"
+      }
     },
     "android": {
       "package": "com.anonymous.fetchitmobile",
@@ -53,7 +56,13 @@
       ],
       "./plugins/withSceneLifecycle",
       "./plugins/withGoogleSignIn",
-      "./plugins/withPlayIntegrity"
+      "./plugins/withPlayIntegrity",
+      [
+        "./plugins/withAppAttest",
+        {
+          "environment": "development"
+        }
+      ]
     ],
     "extra": {
       "playIntegrityCloudProjectNumber": ""

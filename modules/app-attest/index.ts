@@ -34,6 +34,8 @@ export interface AppAttestNativeModule {
   isSupported(): boolean;
   /** The App Attest key id we previously generated (from Keychain), or null. */
   getKeyId(): string | null;
+  /** Forget a stale local identifier so exactly one fresh registration can occur. */
+  resetKey(): void;
   /** Generate a new App Attest key, persist its id in the Keychain, return it. */
   generateKey(): Promise<string>;
   /** One-time registration: attest `keyId` against a base64 server `challenge`. */

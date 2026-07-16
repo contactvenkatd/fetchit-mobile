@@ -1,0 +1,13 @@
+project_id = "fetchit-mobile"
+
+[functions.attestation-challenge]
+verify_jwt = false
+
+[functions.verify-app-attest]
+verify_jwt = false
+
+[functions.verify-play-integrity]
+verify_jwt = false
+
+[functions.auth-gateway]
+verify_jwt = false

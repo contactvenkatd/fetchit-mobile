@@ -118,7 +118,8 @@ export default function SignupScreen() {
           </Link>
         </View>
       }>
-      <GoogleButton onPress={handleGoogle} loading={googleLoading} disabled={loading} />
+      <GoogleButton onPress={handleGoogle} loading={false} disabled />
+      <Text style={styles.googleDisabled}>Google sign-up is temporarily unavailable.</Text>
 
       <View style={styles.divider}>
         <View style={styles.dividerLine} />
@@ -178,6 +179,7 @@ export default function SignupScreen() {
 
 const styles = StyleSheet.create({
   error: { color: Colors.error, fontSize: FontSize.sm, textAlign: 'center' },
+  googleDisabled: { color: Colors.textFaint, fontSize: FontSize.xs, textAlign: 'center' },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -14,19 +14,26 @@
 //     signature over (authenticatorData || SHA256(requestData)) with the stored
 //     public key, checks rpId hash, and requires a strictly increasing counter.
 //
-// FAIL POLICY:
-//   • DB read/write errors → FAIL OPEN (return { verified: true }). A database
-//     outage must not lock users out.
-//   • Any cryptographic/structural failure → FAIL CLOSED ({ verified: false }).
+// FAIL POLICY: configuration, database, identity, replay, structural, and
+// cryptographic failures all fail closed.
 //
 // Secrets to set in the dashboard (Project Settings → Edge Functions → Secrets):
-//   APPLE_APP_ID   e.g. "ABCDE12345.com.anonymous.fetchit-mobile" (TeamID.bundleId)
-//   APPLE_ATTEST_ENV  "production" | "development" (default "production")
+//   APPLE_APP_ID      exactly "PV7JV2P9Q8.ai.compreo.fetchit"
+//   APPLE_ATTEST_ENV  exactly "production" or "development"
 // (SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are injected automatically.)
 
 import { createClient } from "npm:@supabase/supabase-js@^2";
 import { decode as cborDecode } from "npm:cbor-x@^1.5";
 import * as x509 from "npm:@peculiar/x509@^1.11";
+import {
+  canonicalRequest,
+  expectedAaguid,
+  validateAppleConfiguration,
+  validateAssertionCounter,
+  validateCertificateChain,
+  validateNonce,
+  validateRegistrationIdentity,
+} from "../_shared/app-attest-policy.mjs";
 
 x509.cryptoProvider.set(crypto as unknown as Crypto);
 
@@ -137,11 +144,14 @@ function parseAuthData(authData: Uint8Array) {
   return { rpIdHash, counter: counter >>> 0, aaguid, credId };
 }
 
-const APP_ID = Deno.env.get("APPLE_APP_ID") ?? "";
-const ATTEST_ENV = (Deno.env.get("APPLE_ATTEST_ENV") ?? "production").toLowerCase();
+const APP_ID = Deno.env.get("APPLE_APP_ID");
+const ATTEST_ENV = Deno.env.get("APPLE_ATTEST_ENV");
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  const configurationError = validateAppleConfiguration(APP_ID, ATTEST_ENV);
+  if (configurationError) return closed(configurationError);
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -168,6 +178,8 @@ Deno.serve(async (req) => {
     requestData?: string;
     signCount?: number;
     action?: string;
+    email?: string;
+    platform?: string;
   };
   try {
     body = await req.json();
@@ -175,26 +187,25 @@ Deno.serve(async (req) => {
     return closed("bad_body");
   }
   if (!body.keyId) return closed("missing_key_id");
+  if (body.platform !== "ios") return closed("wrong_platform");
+  if (!body.challengeId || !body.action) return closed("missing_challenge_context");
+  const email = body.action === "checkout" ? null : (body.email ?? "").trim().toLowerCase();
 
-  // --- Validate + consume the challenge. DB *errors* fail OPEN; a definitively
-  //     missing/expired/used challenge fails CLOSED. ---
+  // --- Validate + atomically consume the challenge. Every database,
+  //     missing, expired, or replay condition fails closed. ---
   let challengeBytes: Uint8Array | null = null;
   if (body.challengeId) {
     try {
-      const { data: row, error } = await admin
-        .from("attestation_challenges")
-        .select("id, challenge, consumed, expires_at")
-        .eq("id", body.challengeId)
-        .maybeSingle();
-      if (error) return ok(); // DB read error → fail open
-      if (!row) return closed("no_challenge");
-      if (row.consumed) return closed("challenge_used");
-      if (new Date(row.expires_at).getTime() < Date.now()) return closed("challenge_expired");
+      const { data, error } = await admin.rpc("consume_attestation_challenge", {
+        p_id: body.challengeId, p_platform: "ios", p_action: body.action,
+        p_email_normalized: email,
+      });
+      if (error) return closed("challenge_database_error");
+      const row = Array.isArray(data) ? data[0] : null;
+      if (!row) return closed("challenge_invalid_or_used");
       challengeBytes = b64ToBytes(row.challenge as string);
-      // Single-use it (best-effort; a failure here shouldn't block).
-      await admin.from("attestation_challenges").update({ consumed: true }).eq("id", row.id);
     } catch {
-      return ok(); // unexpected DB failure → fail open
+      return closed("challenge_database_error");
     }
   }
 
@@ -203,6 +214,8 @@ Deno.serve(async (req) => {
       return await verifyAttestation(admin, body, challengeBytes, userId);
     }
     if (body.assertion && body.requestData) {
+      const canonical = canonicalRequest(body.action, body.challengeId, email, "ios");
+      if (body.requestData !== canonical) return closed("request_binding_mismatch");
       return await verifyAssertion(admin, body);
     }
     return closed("nothing_to_verify");
@@ -229,19 +242,24 @@ async function verifyAttestation(
   if (obj.fmt !== "apple-appattest") return closed("bad_fmt");
 
   const x5c = obj.attStmt?.x5c;
-  if (!Array.isArray(x5c) || x5c.length < 2) return closed("bad_x5c");
+  if (!Array.isArray(x5c) || x5c.length !== 2) return closed("bad_x5c");
 
   const leaf = new x509.X509Certificate(new Uint8Array(x5c[0]));
   const intermediate = new x509.X509Certificate(new Uint8Array(x5c[1]));
   const root = await appleRoot();
   if (!root) return closed("no_root_ca"); // couldn't fetch Apple root → fail closed
 
-  // Chain: leaf <- intermediate <- Apple root (signature only; ignore validity
-  // window so a slightly-skewed clock doesn't reject a good device).
-  const chainOk =
-    (await leaf.verify({ publicKey: intermediate.publicKey, signatureOnly: true })) &&
-    (await intermediate.verify({ publicKey: root.publicKey, signatureOnly: true }));
-  if (!chainOk) return closed("bad_chain");
+  // Chain: leaf <- intermediate <- pinned Apple root, including validity dates
+  // and the root's self-signature.
+  const now = new Date();
+  const validNow = [leaf, intermediate, root].every((c) => c.notBefore <= now && c.notAfter >= now);
+  const chainError = validateCertificateChain(
+    validNow,
+    await leaf.verify({ publicKey: intermediate.publicKey }),
+    await intermediate.verify({ publicKey: root.publicKey }),
+    await root.verify({ publicKey: root.publicKey }),
+  );
+  if (chainError) return closed(chainError);
 
   // nonce = SHA256(authData || SHA256(challenge)); must match the cert extension.
   const clientDataHash = await sha256(challengeBytes);
@@ -252,13 +270,13 @@ async function verifyAttestation(
   // The extension value is DER: SEQUENCE { [1] { OCTET STRING nonce(32) } }.
   // The 32-byte nonce is the trailing octet string.
   const extNonce = extBytes.slice(-32);
-  if (!timingSafeEqual(extNonce, expectedNonce)) return closed("nonce_mismatch");
+  const nonceError = validateNonce(extNonce, expectedNonce);
+  if (nonceError) return closed(nonceError);
 
   // key id = base64(SHA256(uncompressed EC public key point)).
   const spki = new Uint8Array(leaf.publicKey.rawData);
   const pubPoint = spki.slice(-65); // P-256 uncompressed point (0x04 || X || Y)
   const computedKeyId = bytesToB64(await sha256(pubPoint));
-  if (computedKeyId !== body.keyId) return closed("key_id_mismatch");
 
   // authData checks.
   const { rpIdHash, counter, aaguid, credId } = parseAuthData(obj.authData);
@@ -266,20 +284,25 @@ async function verifyAttestation(
   if (credId && !timingSafeEqual(credId, await sha256(pubPoint))) {
     return closed("cred_id_mismatch");
   }
+  if (!aaguid || !credId) return closed("missing_attested_credential_data");
   if (aaguid) {
-    const expectAaguid = ATTEST_ENV === "development" ? "appattestdevelop" : "appattest\0\0\0\0\0\0\0";
     const gotAaguid = new TextDecoder("latin1").decode(aaguid);
-    if (gotAaguid !== expectAaguid) return closed("bad_aaguid");
+    if (gotAaguid !== expectedAaguid(ATTEST_ENV)) return closed("bad_aaguid");
   }
-  if (APP_ID) {
-    const expectRpId = await sha256(new TextEncoder().encode(APP_ID));
-    if (!timingSafeEqual(rpIdHash, expectRpId)) return closed("bad_rp_id");
-  }
+  const expectRpId = await sha256(new TextEncoder().encode(APP_ID!));
+  const identityError = validateRegistrationIdentity({
+    aaguid: new TextDecoder("latin1").decode(aaguid),
+    environment: ATTEST_ENV,
+    rpIdHash,
+    expectedRpIdHash: expectRpId,
+    keyId: body.keyId,
+    expectedKeyId: computedKeyId,
+  });
+  if (identityError) return closed(identityError);
 
-  // Persist the device (upsert on (platform, key_id)). DB failure → fail OPEN:
-  // the crypto already passed; a write hiccup shouldn't block the user.
+  // Persist the device. Storage failure fails closed.
   try {
-    await admin.from("attested_devices").upsert(
+    const { error } = await admin.from("attested_devices").insert(
       {
         user_id: userId,
         platform: "ios",
@@ -289,10 +312,10 @@ async function verifyAttestation(
         sign_count: 0,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: "platform,key_id" },
     );
+    if (error) return closed("device_storage_failed");
   } catch {
-    /* fail open on write */
+    return closed("device_storage_failed");
   }
   return ok();
 }
@@ -302,7 +325,7 @@ async function verifyAssertion(
   admin: ReturnType<typeof createClient>,
   body: { keyId?: string; assertion?: string; requestData?: string },
 ): Promise<Response> {
-  // Load the registered device. DB error → fail OPEN; genuinely absent → CLOSED.
+  // Load the registered device. Database errors and absence both fail closed.
   let device: { public_key: string | null; sign_count: number | null; id: string } | null = null;
   try {
     const { data, error } = await admin
@@ -311,10 +334,10 @@ async function verifyAssertion(
       .eq("platform", "ios")
       .eq("key_id", body.keyId!)
       .maybeSingle();
-    if (error) return ok(); // DB error → fail open
+    if (error) return closed("device_database_error");
     device = (data as typeof device) ?? null;
   } catch {
-    return ok();
+    return closed("device_database_error");
   }
   if (!device || !device.public_key) return closed("device_not_registered");
 
@@ -347,22 +370,21 @@ async function verifyAssertion(
   if (!sigOk) return closed("bad_signature");
 
   const { rpIdHash, counter } = parseAuthData(authData);
-  if (APP_ID) {
-    const expectRpId = await sha256(new TextEncoder().encode(APP_ID));
-    if (!timingSafeEqual(rpIdHash, expectRpId)) return closed("bad_rp_id");
-  }
+  const expectRpId = await sha256(new TextEncoder().encode(APP_ID!));
+  if (!timingSafeEqual(rpIdHash, expectRpId)) return closed("bad_rp_id");
   // Counter must strictly increase (replay / cloned-key protection).
   const prev = device.sign_count ?? 0;
-  if (counter <= prev) return closed("counter_not_increasing");
+  const counterError = validateAssertionCounter(prev, counter);
+  if (counterError) return closed(counterError);
 
-  // Advance the stored counter. DB failure → fail OPEN (crypto already passed).
+  // Atomically advance the stored counter. Database errors and races fail closed.
   try {
-    await admin
-      .from("attested_devices")
-      .update({ sign_count: counter, updated_at: new Date().toISOString() })
-      .eq("id", device.id);
+    const { data, error } = await admin.rpc("advance_attestation_counter", {
+      p_device_id: device.id, p_previous: prev, p_next: counter,
+    });
+    if (error || data !== true) return closed("counter_race_or_database_error");
   } catch {
-    /* fail open on write */
+    return closed("counter_database_error");
   }
   return ok();
 }

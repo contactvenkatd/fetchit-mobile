@@ -36,10 +36,6 @@ drop policy if exists "attested_devices_select_own" on public.attested_devices;
 create policy "attested_devices_select_own" on public.attested_devices
   for select using (auth.uid() = user_id);
 
--- Owner-only mutations for any direct client writes (belt-and-suspenders; the
--- app doesn't write here directly today).
+-- No client mutation policy: only service_role Edge Functions may write.
 drop policy if exists "attested_devices_modify_own" on public.attested_devices;
-create policy "attested_devices_modify_own" on public.attested_devices
-  for all
-  using (auth.uid() = user_id)
-  with check (auth.uid() = user_id);
+revoke insert, update, delete, truncate on public.attested_devices from anon, authenticated;

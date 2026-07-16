@@ -19,11 +19,12 @@
 //
 // OTP verification itself (otp.tsx → supabase.auth.verifyOtp) is NOT
 // captcha-gated, so it still runs directly against GoTrue.
-import { buildAttestation, type AttestAction } from '@/attestation';
+import { buildAttestation, markCurrentKeyUnregistered, type AttestAction } from '@/attestation';
 import { supabase } from '@/lib/supabase';
+import { canAttemptRecovery } from '@/lib/recovery-policy';
 
 export type NativeAuthResult =
-  | { ok: true }
+  | { ok: true; session?: { access_token: string; refresh_token: string } }
   | { ok: false; message: string; code?: string };
 
 // Supabase FunctionsHttpError carries the Response on `.context`; the gateway
@@ -44,12 +45,14 @@ const DEVICE_UNVERIFIED =
   "We couldn't verify this device. App Attest requires a physical device — this won't work on a Simulator.";
 
 async function invokeGateway(
-  action: 'signup' | 'login' | 'resend',
+  action: 'signup' | 'login' | 'resend' | 'verify_otp',
   extra: Record<string, unknown>,
   attestAction: AttestAction,
+  recoveryAttempts = 0,
 ): Promise<NativeAuthResult> {
   // Build (but don't verify) the attestation — the gateway verifies it.
-  const att = await buildAttestation(attestAction);
+  const email = typeof extra.email === 'string' ? extra.email.trim().toLowerCase() : '';
+  const att = await buildAttestation(attestAction, email);
   if (att.status !== 'ok') {
     // 'skipped' (simulator / unsupported / server unreachable) and 'failed'
     // both mean we can't present a device proof → the gateway would reject.
@@ -66,15 +69,28 @@ async function invokeGateway(
   });
 
   if (error) {
-    return { ok: false, message: await readFnError(error, 'Something went wrong. Please try again.') };
+    let code: string | undefined;
+    try {
+      const response = (error as { context?: Response }).context;
+      code = (await response?.clone().json() as { code?: string } | undefined)?.code;
+    } catch { /* retain generic error */ }
+    if (code === 'device_not_registered' && canAttemptRecovery(recoveryAttempts)) {
+      await markCurrentKeyUnregistered();
+      return invokeGateway(action, extra, attestAction, recoveryAttempts + 1);
+    }
+    return { ok: false, message: await readFnError(error, 'Something went wrong. Please try again.'), code };
   }
   if (data?.error) {
+    if (data.code === 'device_not_registered' && canAttemptRecovery(recoveryAttempts)) {
+      await markCurrentKeyUnregistered();
+      return invokeGateway(action, extra, attestAction, recoveryAttempts + 1);
+    }
     return { ok: false, message: data.error as string, code: data.code as string | undefined };
   }
 
   // Server confirmed → persist the iOS "registered" flag (no-op otherwise).
   await att.onVerified();
-  return { ok: true };
+  return { ok: true, session: data?.session };
 }
 
 /** Create the account (server-side, attestation-gated) and email the confirm code. */
@@ -89,5 +105,9 @@ export function gatewayLogin(email: string): Promise<NativeAuthResult> {
 
 /** Re-send the current flow's one-time code (used by the OTP screen's resend). */
 export function gatewayResend(email: string): Promise<NativeAuthResult> {
-  return invokeGateway('resend', { email }, 'login');
+  return invokeGateway('resend', { email }, 'resend');
+}
+
+export async function gatewayVerifyOtp(email: string, token: string): Promise<NativeAuthResult> {
+  return invokeGateway('verify_otp', { email, token }, 'verify_otp');
 }

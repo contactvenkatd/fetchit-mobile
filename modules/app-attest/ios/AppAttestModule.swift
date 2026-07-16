@@ -42,6 +42,11 @@ public class AppAttestModule: Module {
       Int(self.keychainRead(self.counterAccount) ?? "0") ?? 0
     }
 
+    Function("resetKey") { () -> Void in
+      self.keychainDelete(self.keyIdAccount)
+      self.keychainDelete(self.counterAccount)
+    }
+
     AsyncFunction("generateKey") { (promise: Promise) in
       guard #available(iOS 14.0, *), DCAppAttestService.shared.isSupported else {
         promise.reject("ERR_UNSUPPORTED", "App Attest is not supported on this device.")
@@ -159,5 +164,14 @@ public class AppAttestModule: Module {
     let status = SecItemCopyMatching(query as CFDictionary, &out)
     guard status == errSecSuccess, let data = out as? Data else { return nil }
     return String(data: data, encoding: .utf8)
+  }
+
+  private func keychainDelete(_ account: String) {
+    let query: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: keychainService,
+      kSecAttrAccount as String: account,
+    ]
+    SecItemDelete(query as CFDictionary)
   }
 }

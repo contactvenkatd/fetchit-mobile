@@ -131,7 +131,7 @@ Deno.serve(async (req) => {
 
     const action = body.action;
     const email = (body.email ?? "").trim().toLowerCase();
-    if (!action || !["signup", "login", "resend"].includes(action)) {
+    if (!action || !["signup", "login", "resend", "verify_otp"].includes(action)) {
       return json({ error: "Unknown action." }, 400);
     }
     if (!EMAIL_RE.test(email)) return json({ error: "Please enter a valid email." }, 400);
@@ -143,11 +143,14 @@ Deno.serve(async (req) => {
 
     // ---- Rate limit (defense-in-depth; attestation is the primary gate). ----
     const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
-    const [{ data: okIp }, { data: okEmail }] = await Promise.all([
+    const [{ data: okIp, error: ipRateError }, { data: okEmail, error: emailRateError }] = await Promise.all([
       admin.rpc("rl_check", { p_bucket: `authgw:ip:${ip}`, p_limit: 30, p_window_seconds: 3600 }),
       admin.rpc("rl_check", { p_bucket: `authgw:email:${email}`, p_limit: 6, p_window_seconds: 3600 }),
     ]);
-    if (okIp === false || okEmail === false) {
+    if (ipRateError || emailRateError) {
+      return json({ error: "Security service unavailable.", code: "rate_limit_unavailable" }, 503);
+    }
+    if (okIp !== true || okEmail !== true) {
       return json({ error: "Too many requests. Please try again later.", code: "rate_limited" }, 429);
     }
 
@@ -155,10 +158,26 @@ Deno.serve(async (req) => {
     if (!body.attestation) {
       return json({ error: "Device verification is required.", code: "no_attestation" }, 403);
     }
+    if (body.platform !== "ios" && body.platform !== "android") {
+      return json({ error: "Device verification is required.", code: "bad_platform" }, 403);
+    }
+    if (body.attestation.action !== action || body.attestation.email !== email ||
+        body.attestation.platform !== body.platform) {
+      return json({ error: "Attestation request did not match.", code: "request_binding_mismatch" }, 403);
+    }
     const verifyFn = body.platform === "android" ? "verify-play-integrity" : "verify-app-attest";
     const { data: v, error: ve } = await admin.functions.invoke(verifyFn, { body: body.attestation });
     if (ve || v?.verified !== true) {
-      return json({ error: "This device could not be verified.", code: "attestation_failed" }, 403);
+      return json({ error: "This device could not be verified.", code: v?.reason ?? "attestation_failed" }, 403);
+    }
+
+    if (action === "verify_otp") {
+      const token = typeof (body as { token?: unknown }).token === "string"
+        ? (body as { token: string }).token : "";
+      if (!/^\d{8}$/.test(token)) return json({ error: "Invalid verification code." }, 400);
+      const { data, error } = await admin.auth.verifyOtp({ email, token, type: "email" });
+      if (error || !data.session) return json({ error: "That code is incorrect or expired." }, 400);
+      return json({ ok: true, session: data.session });
     }
 
     // ---- Perform the auth action (all captcha-exempt admin-API calls). ----

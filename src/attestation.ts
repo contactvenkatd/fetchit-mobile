@@ -20,10 +20,11 @@ import * as SecureStore from 'expo-secure-store';
 
 import type { AppAttestNativeModule } from '../modules/app-attest';
 import { supabase } from '@/lib/supabase';
+import { canAttemptRecovery } from '@/lib/recovery-policy';
 
 const AppAttest = requireOptionalNativeModule<AppAttestNativeModule>('AppAttest');
 
-export type AttestAction = 'signup' | 'login' | 'checkout';
+export type AttestAction = 'signup' | 'login' | 'resend' | 'verify_otp' | 'checkout';
 export type AttestStatus = 'ok' | 'skipped' | 'failed';
 export type AttestPlatform = 'ios' | 'android' | 'web';
 
@@ -53,10 +54,10 @@ const noop = async () => {};
 
 type Challenge = { id: string; challenge: string };
 
-async function fetchChallenge(action: AttestAction): Promise<Challenge | null> {
+async function fetchChallenge(action: AttestAction, email: string | null): Promise<Challenge | null> {
   try {
     const { data, error } = await supabase.functions.invoke('attestation-challenge', {
-      body: { platform: Platform.OS, action },
+      body: { platform: Platform.OS, action, email },
     });
     if (error || !data?.id || !data?.challenge) return null;
     return { id: data.id, challenge: data.challenge };
@@ -87,16 +88,17 @@ type Produced =
       onVerified: () => Promise<void>;
     };
 
-async function produce(action: AttestAction): Promise<Produced> {
+async function produce(action: AttestAction, rawEmail: string | null = null, recoveryAttempts = 0): Promise<Produced> {
   const os = Platform.OS;
-  if (os !== 'ios' && os !== 'android') return { status: 'skipped' };
-  if (!AppAttest) return { status: 'skipped' };
+  if (os !== 'ios' && os !== 'android') return { status: 'failed' };
+  if (!AppAttest) return { status: 'failed' };
+  const email = action === 'checkout' ? null : (rawEmail ?? '').trim().toLowerCase();
 
   try {
     if (os === 'ios') {
-      if (!AppAttest.isSupported()) return { status: 'skipped' };
-      const challenge = await fetchChallenge(action);
-      if (!challenge) return { status: 'skipped' };
+      if (!AppAttest.isSupported()) return { status: 'failed' };
+      const challenge = await fetchChallenge(action, email);
+      if (!challenge) return { status: 'failed' };
 
       let keyId = AppAttest.getKeyId();
       if (!keyId) keyId = await AppAttest.generateKey();
@@ -109,7 +111,7 @@ async function produce(action: AttestAction): Promise<Produced> {
           status: 'ok',
           platform: 'ios',
           token: attestation,
-          verify: { challengeId: challenge.id, platform: 'ios', keyId: kid, attestation, action },
+          verify: { challengeId: challenge.id, platform: 'ios', keyId: kid, attestation, action, email },
           // Only mark registered once the SERVER confirms, so a rejected
           // registration doesn't strand later assertions with no device row.
           onVerified: async () => {
@@ -118,7 +120,7 @@ async function produce(action: AttestAction): Promise<Produced> {
         };
       }
 
-      const requestData = JSON.stringify({ challengeId: challenge.id, action });
+      const requestData = JSON.stringify({ action, challenge: challenge.id, email, platform: 'ios' });
       const { assertion, signCount } = await AppAttest.generateAssertion(keyId, requestData);
       return {
         status: 'ok',
@@ -132,14 +134,15 @@ async function produce(action: AttestAction): Promise<Produced> {
           requestData,
           signCount,
           action,
+          email,
         },
         onVerified: noop,
       };
     }
 
     // Android — Play Integrity.
-    const challenge = await fetchChallenge(action);
-    if (!challenge) return { status: 'skipped' };
+    const challenge = await fetchChallenge(action, email);
+    if (!challenge) return { status: 'failed' };
     const token = await AppAttest.requestIntegrityToken(challenge.challenge);
     return {
       status: 'ok',
@@ -151,13 +154,25 @@ async function produce(action: AttestAction): Promise<Produced> {
         token,
         requestHash: challenge.challenge,
         action,
+        email,
       },
       onVerified: noop,
     };
   } catch (e) {
+    if (os === 'ios' && canAttemptRecovery(recoveryAttempts) && (e as { code?: string })?.code === 'ERR_ATTEST') {
+      const staleKey = AppAttest.getKeyId();
+      if (staleKey) await SecureStore.deleteItemAsync(regFlagKey(staleKey));
+      AppAttest.resetKey();
+      return produce(action, rawEmail, recoveryAttempts + 1);
+    }
     if (isUnsupported(e)) return { status: 'skipped' };
     return { status: 'failed' };
   }
+}
+
+export async function markCurrentKeyUnregistered(): Promise<void> {
+  const keyId = AppAttest?.getKeyId();
+  if (keyId) await SecureStore.deleteItemAsync(regFlagKey(keyId));
 }
 
 async function callVerify(fn: string, body: Record<string, unknown>): Promise<boolean> {
@@ -194,8 +209,8 @@ export async function attest(action: AttestAction): Promise<AttestResult> {
  * NOT call verify-* (the gateway must, so the single-use challenge is consumed
  * exactly once). The caller invokes `onVerified()` after the gateway confirms.
  */
-export async function buildAttestation(action: AttestAction): Promise<BuildResult> {
-  const p = await produce(action);
+export async function buildAttestation(action: AttestAction, email: string): Promise<BuildResult> {
+  const p = await produce(action, email);
   if (p.status !== 'ok') return { status: p.status };
   return {
     status: 'ok',

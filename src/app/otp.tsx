@@ -16,7 +16,7 @@ import {
 
 import { Logo } from '@/components/ui/Logo';
 import { Screen } from '@/components/ui/Screen';
-import { gatewayResend } from '@/lib/nativeAuth';
+import { gatewayResend, gatewayVerifyOtp } from '@/lib/nativeAuth';
 import { supabase } from '@/lib/supabase';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
@@ -76,11 +76,14 @@ export default function OtpScreen() {
     // Both signup and login now use magic-link OTPs minted by the auth-gateway
     // (admin.generateLink type "magiclink"), which verify with type "email".
     // verifyOtp is NOT captcha-gated, so it runs directly against GoTrue.
-    const { error: otpError } = await supabase.auth.verifyOtp({
-      email,
-      token: code,
-      type: 'email',
-    });
+    const result = await gatewayVerifyOtp(email, code);
+    let otpError = !result.ok;
+    if (result.ok && result.session) {
+      const { error } = await supabase.auth.setSession(result.session);
+      otpError = !!error;
+    } else if (result.ok) {
+      otpError = true;
+    }
 
     setVerifying(false);
 

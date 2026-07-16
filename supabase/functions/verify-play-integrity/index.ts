@@ -13,12 +13,8 @@
 //      deviceIntegrity.deviceRecognitionVerdict includes "MEETS_DEVICE_INTEGRITY".
 //   5. Record the verdict on the caller's `attested_devices` row.
 //
-// FAIL POLICY:
-//   • DB errors, missing Google config, or a failed Google decode call →
-//     FAIL OPEN ({ verified: true }) — infrastructure problems must not block
-//     legitimate users (mirrors the DB-error policy).
-//   • A token that decodes but fails the verdict/requestHash checks →
-//     FAIL CLOSED ({ verified: false }).
+// FAIL POLICY: configuration, database, Google API, identity, replay, and
+// integrity-verdict failures all fail closed.
 //
 // Secrets to set (Project Settings → Edge Functions → Secrets):
 //   GOOGLE_SERVICE_ACCOUNT_JSON  full JSON of a service account with the
@@ -124,31 +120,30 @@ Deno.serve(async (req) => {
     /* anonymous is allowed */
   }
 
-  let body: { challengeId?: string; token?: string; requestHash?: string; action?: string };
+  let body: { challengeId?: string; token?: string; requestHash?: string; action?: string; email?: string; platform?: string };
   try {
     body = await req.json();
   } catch {
     return closed("bad_body");
   }
   if (!body.token) return closed("missing_token");
+  if (body.platform !== "android" || !body.challengeId || !body.action) return closed("missing_request_context");
+  const email = body.action === "checkout" ? null : (body.email ?? "").trim().toLowerCase();
 
   // --- Validate + consume the challenge (DB errors fail OPEN). ---
   let expectedHash: string | null = null;
   if (body.challengeId) {
     try {
-      const { data: row, error } = await admin
-        .from("attestation_challenges")
-        .select("id, challenge, consumed, expires_at")
-        .eq("id", body.challengeId)
-        .maybeSingle();
-      if (error) return ok();
-      if (!row) return closed("no_challenge");
-      if (row.consumed) return closed("challenge_used");
-      if (new Date(row.expires_at).getTime() < Date.now()) return closed("challenge_expired");
+      const { data, error } = await admin.rpc("consume_attestation_challenge", {
+        p_id: body.challengeId, p_platform: "android", p_action: body.action,
+        p_email_normalized: email,
+      });
+      if (error) return closed("challenge_database_error");
+      const row = Array.isArray(data) ? data[0] : null;
+      if (!row) return closed("challenge_invalid_or_used");
       expectedHash = row.challenge as string;
-      await admin.from("attestation_challenges").update({ consumed: true }).eq("id", row.id);
     } catch {
-      return ok();
+      return closed("challenge_database_error");
     }
   }
 
@@ -157,20 +152,20 @@ Deno.serve(async (req) => {
     return closed("request_hash_mismatch");
   }
 
-  // --- Google config. Missing config → FAIL OPEN (rollout-friendly). ---
+  // --- Google config. Missing or malformed configuration fails closed. ---
   const packageName = Deno.env.get("ANDROID_PACKAGE_NAME") ?? "";
   const saRaw = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_JSON") ?? "";
-  if (!packageName || !saRaw) return ok();
+  if (!packageName || !saRaw) return closed("google_config_missing");
 
   let sa: { client_email: string; private_key: string };
   try {
     sa = JSON.parse(saRaw);
   } catch {
-    return ok(); // malformed config → fail open
+    return closed("google_config_invalid");
   }
 
   const accessToken = await getGoogleAccessToken(sa);
-  if (!accessToken) return ok(); // couldn't reach Google / bad creds → fail open
+  if (!accessToken) return closed("google_token_unavailable");
 
   // --- Decode the integrity token via Google. ---
   let payload: {
@@ -190,12 +185,12 @@ Deno.serve(async (req) => {
         body: JSON.stringify({ integrity_token: body.token }),
       },
     );
-    if (!res.ok) return ok(); // Google decode call failed → infra → fail open
+    if (!res.ok) return closed("google_decode_failed");
     const decoded = (await res.json()) as { tokenPayloadExternal?: typeof payload };
     if (!decoded.tokenPayloadExternal) return closed("no_payload");
     payload = decoded.tokenPayloadExternal;
   } catch {
-    return ok(); // network error → fail open
+    return closed("google_decode_unavailable");
   }
 
   // --- Evaluate the verdict (token decoded → real signal → FAIL CLOSED). ---
@@ -217,7 +212,7 @@ Deno.serve(async (req) => {
   // --- Record the verdict (DB failure → fail OPEN). One row per user via a
   //     synthetic key_id so re-checks upsert rather than pile up. ---
   try {
-    await admin.from("attested_devices").upsert(
+    const { error } = await admin.from("attested_devices").upsert(
       {
         user_id: userId,
         platform: "android",
@@ -227,8 +222,9 @@ Deno.serve(async (req) => {
       },
       { onConflict: "platform,key_id" },
     );
+    if (error) return closed("device_storage_failed");
   } catch {
-    /* fail open on write */
+    return closed("device_storage_failed");
   }
 
   return ok();
