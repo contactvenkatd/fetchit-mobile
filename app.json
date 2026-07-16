@@ -12,6 +12,9 @@
       "bundleIdentifier": "ai.compreo.fetchit",
       "entitlements": {
         "com.apple.developer.devicecheck.appattest-environment": "development"
+      },
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -65,7 +68,11 @@
       ]
     ],
     "extra": {
-      "playIntegrityCloudProjectNumber": ""
+      "playIntegrityCloudProjectNumber": "",
+      "router": {},
+      "eas": {
+        "projectId": "cdbe685f-4a42-4078-8217-8c0e3489ed5a"
+      }
     },
     "experiments": {
       "typedRoutes": true,
