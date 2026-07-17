@@ -105,6 +105,7 @@ async function produce(action: AttestAction, rawEmail: string | null = null, rec
 
       let keyId = AppAttest.getKeyId();
       if (!keyId) keyId = await AppAttest.generateKey();
+      console.log('attest_debug_keyid', JSON.stringify(keyId), typeof keyId);
       const registered = (await SecureStore.getItemAsync(regFlagKey(keyId))) === '1';
 
       if (!registered) {
