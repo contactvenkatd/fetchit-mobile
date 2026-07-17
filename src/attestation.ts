@@ -49,7 +49,7 @@ export type BuildResult =
       onVerified: () => Promise<void>;
     };
 
-const regFlagKey = (keyId: string) => `attest_registered_${keyId}`;
+const regFlagKey = (keyId: string) => `attest_registered_${keyId.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
 const noop = async () => {};
 
 type Challenge = { id: string; challenge: string };
