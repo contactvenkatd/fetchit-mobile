@@ -99,6 +99,7 @@ async function produce(action: AttestAction, rawEmail: string | null = null, rec
       console.log('[attest debug] AppAttest.isSupported() =', AppAttest.isSupported());
       if (!AppAttest.isSupported()) return { status: 'failed' };
       const challenge = await fetchChallenge(action, email);
+      console.log('[attest debug] challenge =', JSON.stringify(challenge));
       if (!challenge) return { status: 'failed' };
 
       let keyId = AppAttest.getKeyId();
