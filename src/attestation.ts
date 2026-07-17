@@ -168,7 +168,7 @@ async function produce(action: AttestAction, rawEmail: string | null = null, rec
       AppAttest.resetKey();
       return produce(action, rawEmail, recoveryAttempts + 1);
     }
-    console.log('attest_debug_caught', JSON.stringify(e));
+    console.log("attest_debug_caught", "message:", (e as Error)?.message, "code:", (e as { code?: string })?.code, "name:", (e as Error)?.name);
     if (isUnsupported(e)) return { status: 'skipped' };
     return { status: 'failed' };
   }
