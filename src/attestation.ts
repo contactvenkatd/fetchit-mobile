@@ -59,6 +59,7 @@ async function fetchChallenge(action: AttestAction, email: string | null): Promi
     const { data, error } = await supabase.functions.invoke('attestation-challenge', {
       body: { platform: Platform.OS, action, email },
     });
+    console.log('[attest debug] challenge fn error:', JSON.stringify(error), 'data:', JSON.stringify(data));
     if (error || !data?.id || !data?.challenge) return null;
     return { id: data.id, challenge: data.challenge };
   } catch {
