@@ -96,6 +96,7 @@ async function produce(action: AttestAction, rawEmail: string | null = null, rec
 
   try {
     if (os === 'ios') {
+      console.log('[attest debug] AppAttest.isSupported() =', AppAttest.isSupported());
       if (!AppAttest.isSupported()) return { status: 'failed' };
       const challenge = await fetchChallenge(action, email);
       if (!challenge) return { status: 'failed' };
