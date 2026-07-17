@@ -77,6 +77,7 @@ export default function OtpScreen() {
     // (admin.generateLink type "magiclink"), which verify with type "email".
     // verifyOtp is NOT captcha-gated, so it runs directly against GoTrue.
     const result = await gatewayVerifyOtp(email, code);
+    console.log("attest_debug_otp_result", JSON.stringify(result));
     let otpError = !result.ok;
     if (result.ok && result.session) {
       const { error } = await supabase.auth.setSession(result.session);
