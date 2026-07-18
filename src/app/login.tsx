@@ -2,11 +2,14 @@ import {
   GoogleSignin,
   statusCodes,
 } from '@react-native-google-signin/google-signin';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as Crypto from 'expo-crypto';
 import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { AuthLayout } from '@/components/AuthLayout';
+import { AppleButton } from '@/components/ui/AppleButton';
 import { Button } from '@/components/ui/Button';
 import { GoogleButton } from '@/components/ui/GoogleButton';
 import { TextField } from '@/components/ui/TextField';
@@ -25,6 +28,59 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
+
+  async function handleApple() {
+    setError('');
+    setAppleLoading(true);
+    try {
+      const nonce = Crypto.randomUUID();
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        nonce,
+      );
+      const credential = await AppleAuthentication.signInAsync({
+        nonce: hashedNonce,
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+
+      if (!credential.identityToken) {
+        setAppleLoading(false);
+        setError('Could not sign in with Apple. Please try again.');
+        return;
+      }
+
+      const { data: authData, error: authError } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken,
+        nonce,
+      });
+      if (authError) {
+        setAppleLoading(false);
+        setError('Could not sign in with Apple. Please try again.');
+        return;
+      }
+
+      const user = authData?.user;
+      const isNewUser = user && Math.abs(new Date(user.created_at).getTime() - new Date(user.last_sign_in_at ?? user.created_at).getTime()) < 5000;
+      if (isNewUser) {
+        await supabase.auth.signOut();
+        setAppleLoading(false);
+        setError('No account found for this Apple email. Please sign up first.');
+        return;
+      }
+
+      setAppleLoading(false);
+      router.replace('/(app)/chat');
+    } catch (e) {
+      setAppleLoading(false);
+      if ((e as { code?: string })?.code === 'ERR_REQUEST_CANCELED') return;
+      setError('Could not sign in with Apple. Please try again.');
+    }
+  }
 
   // "Continue with Google" — native, fully in-app sign-in. The Google SDK
   // presents its own sheet, returns an ID token, and we hand that straight to
@@ -131,6 +187,7 @@ export default function LoginScreen() {
           </Link>
         </View>
       }>
+      <AppleButton onPress={handleApple} loading={appleLoading} />
       <GoogleButton onPress={handleGoogle} loading={googleLoading} />
 
       <View style={styles.divider}>

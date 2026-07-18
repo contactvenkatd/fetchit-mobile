@@ -10,8 +10,12 @@
     "ios": {
       "icon": "./assets/expo.icon",
       "bundleIdentifier": "ai.compreo.fetchit",
+      "usesAppleSignIn": true,
       "entitlements": {
-        "com.apple.developer.devicecheck.appattest-environment": "development"
+        "com.apple.developer.devicecheck.appattest-environment": "development",
+        "com.apple.developer.applesignin": [
+          "Default"
+        ]
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -51,6 +55,7 @@
         }
       ],
       "expo-secure-store",
+      "expo-apple-authentication",
       [
         "@react-native-google-signin/google-signin",
         {

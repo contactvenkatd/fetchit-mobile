@@ -1,4 +1,9 @@
-import { CardField, useStripe } from '@stripe/stripe-react-native';
+import {
+  CardField,
+  PlatformPay,
+  PlatformPayButton,
+  useStripe,
+} from '@stripe/stripe-react-native';
 import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -58,7 +63,11 @@ function cardFromProfile(p: Profile): SavedCard | null {
 
 export default function CardsAddressScreen() {
   const { session, loading: authLoading } = useAuth();
-  const { confirmSetupIntent } = useStripe();
+  const {
+    confirmSetupIntent,
+    confirmPlatformPaySetupIntent,
+    isPlatformPaySupported,
+  } = useStripe();
 
   // Profile / address.
   const [loadingProfile, setLoadingProfile] = useState(true);
@@ -71,6 +80,7 @@ export default function CardsAddressScreen() {
   const [cardComplete, setCardComplete] = useState(false);
   const [cardError, setCardError] = useState('');
   const [savingCard, setSavingCard] = useState(false);
+  const [applePaySupported, setApplePaySupported] = useState(false);
 
   // Lightweight toast (web uses a <Toast>; here a self-clearing banner).
   const [toast, setToast] = useState('');
@@ -83,6 +93,20 @@ export default function CardsAddressScreen() {
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    isPlatformPaySupported()
+      .then((supported) => {
+        if (active) setApplePaySupported(supported);
+      })
+      .catch(() => {
+        if (active) setApplePaySupported(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isPlatformPaySupported]);
 
   // Load the profile once auth resolves.
   useEffect(() => {
@@ -131,6 +155,46 @@ export default function CardsAddressScreen() {
     showToast(error ? "Couldn't save — try again." : 'Address updated! 🐕');
   }
 
+  async function finishSavingCard(paymentMethodId: string, customerId?: string) {
+    if (!paymentMethodId) {
+      setCardError('Your card could not be saved.');
+      setSavingCard(false);
+      return;
+    }
+
+    // 3. Set the card as the customer's default and get back display metadata.
+    const { data: saved, error: saveErr } = await saveCard(paymentMethodId);
+    if (saveErr) {
+      setCardError(saveErr.message);
+      setSavingCard(false);
+      return;
+    }
+
+    // 4. Persist the Stripe ids + non-sensitive card metadata on the profile.
+    const c = saved?.card ?? {};
+    await saveProfile(
+      {
+        stripeCustomerId: customerId ?? null,
+        stripePaymentMethodId: paymentMethodId,
+        cardBrand: c.brand ?? null,
+        cardLast4: c.last4 ?? null,
+        cardExpMonth: c.expMonth ?? null,
+        cardExpYear: c.expYear ?? null,
+      },
+      new Date().toISOString(),
+    );
+
+    setCard(
+      c.last4
+        ? { brand: c.brand ?? null, last4: c.last4, expMonth: c.expMonth ?? null, expYear: c.expYear ?? null }
+        : null,
+    );
+    setEditingCard(false);
+    setCardComplete(false);
+    setSavingCard(false);
+    showToast('Card updated! 🐕');
+  }
+
   async function handleSaveCard() {
     setCardError('');
     if (!cardComplete) {
@@ -139,8 +203,6 @@ export default function CardsAddressScreen() {
     }
     setSavingCard(true);
 
-    // 1. Server reuses/creates the customer and starts a SetupIntent (saves the
-    //    card for later off-session charges — NO charge now).
     const { data: setup, error: setupErr } = await createSetupIntent();
     if (setupErr || !setup) {
       setCardError(setupErr?.message ?? 'Could not start card setup.');
@@ -148,8 +210,6 @@ export default function CardsAddressScreen() {
       return;
     }
 
-    // 2. Confirm the SetupIntent on-device. The CardField holds the entered
-    //    details; we attach the shipping name/address as billing details.
     const { setupIntent, error: cardErr } = await confirmSetupIntent(setup.clientSecret, {
       paymentMethodType: 'Card',
       paymentMethodData: {
@@ -177,38 +237,48 @@ export default function CardsAddressScreen() {
       setSavingCard(false);
       return;
     }
+    await finishSavingCard(paymentMethodId, setup.customerId);
+  }
 
-    // 3. Set the card as the customer's default and get back display metadata.
-    const { data: saved, error: saveErr } = await saveCard(paymentMethodId);
-    if (saveErr) {
-      setCardError(saveErr.message);
+  async function handleApplePay() {
+    setCardError('');
+    setSavingCard(true);
+    const { data: setup, error: setupErr } = await createSetupIntent();
+    if (setupErr || !setup) {
+      setCardError(setupErr?.message ?? 'Could not start card setup.');
       setSavingCard(false);
       return;
     }
 
-    // 4. Persist the Stripe ids + non-sensitive card metadata on the profile.
-    const c = saved?.card ?? {};
-    await saveProfile(
+    const { setupIntent, error } = await confirmPlatformPaySetupIntent(
+      setup.clientSecret,
       {
-        stripeCustomerId: setup.customerId ?? null,
-        stripePaymentMethodId: paymentMethodId,
-        cardBrand: c.brand ?? null,
-        cardLast4: c.last4 ?? null,
-        cardExpMonth: c.expMonth ?? null,
-        cardExpYear: c.expYear ?? null,
+        applePay: {
+          merchantCountryCode: 'US',
+          currencyCode: 'USD',
+          cartItems: [
+            {
+              label: 'FetchIt',
+              amount: '0.00',
+              paymentType: PlatformPay.PaymentType.Immediate,
+            },
+          ],
+        },
       },
-      new Date().toISOString(),
     );
+    if (error) {
+      setCardError(error.message ?? 'Your card could not be saved.');
+      setSavingCard(false);
+      return;
+    }
 
-    setCard(
-      c.last4
-        ? { brand: c.brand ?? null, last4: c.last4, expMonth: c.expMonth ?? null, expYear: c.expYear ?? null }
-        : null,
-    );
-    setEditingCard(false);
-    setCardComplete(false);
-    setSavingCard(false);
-    showToast('Card updated! 🐕');
+    const paymentMethodId = setupIntent?.paymentMethod?.id;
+    if (!paymentMethodId) {
+      setCardError('Your card could not be saved.');
+      setSavingCard(false);
+      return;
+    }
+    await finishSavingCard(paymentMethodId, setup.customerId);
   }
 
   if (authLoading || loadingProfile) {
@@ -335,6 +405,24 @@ export default function CardsAddressScreen() {
             />
           ) : (
             <View style={styles.cardForm}>
+              {applePaySupported ? (
+                <>
+                  <Text style={styles.fieldLabel}>Add card with Apple Pay</Text>
+                  <PlatformPayButton
+                    type={PlatformPay.ButtonType.SetUp}
+                    appearance={PlatformPay.ButtonStyle.White}
+                    borderRadius={Radius.pill}
+                    onPress={handleApplePay}
+                    disabled={savingCard}
+                    style={styles.applePayButton}
+                  />
+                  <View style={styles.divider}>
+                    <View style={styles.dividerLine} />
+                    <Text style={styles.dividerText}>or enter card details</Text>
+                    <View style={styles.dividerLine} />
+                  </View>
+                </>
+              ) : null}
               <Text style={styles.fieldLabel}>Card details</Text>
               <CardField
                 postalCodeEnabled
@@ -426,6 +514,15 @@ const styles = StyleSheet.create({
   cardForm: { gap: Spacing.sm, marginTop: Spacing.sm },
   fieldLabel: { color: Colors.textMuted, fontSize: FontSize.sm, fontWeight: '600' },
   cardField: { width: '100%', height: 50, marginVertical: Spacing.xs },
+  applePayButton: { width: '100%', height: 50, marginVertical: Spacing.xs },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginVertical: Spacing.xs,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
+  dividerText: { color: Colors.textFaint, fontSize: FontSize.xs },
   note: { color: Colors.textFaint, fontSize: FontSize.xs, lineHeight: 18 },
   error: { color: Colors.error, fontSize: FontSize.sm },
   // Toast
