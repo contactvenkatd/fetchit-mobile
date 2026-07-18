@@ -121,8 +121,7 @@ export default function LoginScreen() {
           </Link>
         </View>
       }>
-      <GoogleButton onPress={handleGoogle} loading={false} disabled />
-      <Text style={styles.googleDisabled}>Google sign-in is temporarily unavailable.</Text>
+      <GoogleButton onPress={handleGoogle} loading={googleLoading} />
 
       <View style={styles.divider}>
         <View style={styles.dividerLine} />
