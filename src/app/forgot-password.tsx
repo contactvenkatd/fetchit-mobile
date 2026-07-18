@@ -5,23 +5,16 @@ import { StyleSheet, Text, View } from 'react-native';
 import { AuthLayout } from '@/components/AuthLayout';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
-import { supabase } from '@/lib/supabase';
+import { gatewayForgotPassword } from '@/lib/nativeAuth';
 import { Colors, FontSize, Spacing } from '@/theme/colors';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Where the reset email's link returns to. Mirrors the web app's
-// sendPasswordReset (redirectTo `${origin}/reset-password`); on mobile that's
-// the `fetchitmobile://` custom scheme handled in src/app/_layout.tsx.
-// NOTE: this screen only *sends* the email (step 1 of 2). The matching
-// `/reset-password` deep-link screen that lets the user set a new password
-// inside the recovery session isn't built yet — see the web ResetPasswordPage.
-const RESET_REDIRECT = 'fetchitmobile://reset-password';
-
 /**
  * Forgot-password — request a reset link by email. Native port of the web app's
- * forgot-password sender (utils.js `sendPasswordReset`). The web version also
- * passes a `captchaToken`; the mobile app has no captcha, so it's omitted.
+ * forgot-password sender (utils.js `sendPasswordReset`). Native uses the
+ * attestation-gated auth gateway because the direct GoTrue endpoint requires
+ * the project-wide CAPTCHA that React Native cannot render.
  */
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -39,23 +32,15 @@ export default function ForgotPasswordScreen() {
     }
 
     setLoading(true);
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(
-      trimmed,
-      { redirectTo: RESET_REDIRECT },
-    );
+    const result = await gatewayForgotPassword(trimmed);
     setLoading(false);
 
-    if (resetError) {
-      // Supabase deliberately does NOT report "no account with this email" —
-      // that would leak which addresses are registered. So a real error here is
-      // something else (rate limiting, a malformed address, a network failure).
-      const msg = resetError.message.toLowerCase();
+    if (!result.ok) {
+      const msg = result.message.toLowerCase();
       if (msg.includes('rate') || msg.includes('limit') || msg.includes('many')) {
         setError('Too many attempts. Please wait a minute and try again.');
       } else {
-        setError(
-          resetError.message || "Couldn't send the reset email. Please try again.",
-        );
+        setError(result.message || "Couldn't send the reset email. Please try again.");
       }
       return;
     }

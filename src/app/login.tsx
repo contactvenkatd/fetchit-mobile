@@ -212,6 +212,9 @@ export default function LoginScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Button label="Send sign-in code" onPress={handleLogin} loading={loading} />
+      <Link href="/forgot-password" style={styles.forgotLink}>
+        Forgot Password?
+      </Link>
     </AuthLayout>
   );
 }
@@ -230,4 +233,10 @@ const styles = StyleSheet.create({
   footerRow: { flexDirection: 'row', alignItems: 'center' },
   footerText: { color: Colors.textMuted, fontSize: FontSize.sm },
   link: { color: Colors.yellow, fontSize: FontSize.sm, fontWeight: '700' },
+  forgotLink: {
+    color: Colors.yellow,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
 });

@@ -1,4 +1,4 @@
-import { useRouter } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
@@ -6,7 +6,7 @@ import { AuthLayout } from '@/components/AuthLayout';
 import { Button } from '@/components/ui/Button';
 import { TextField } from '@/components/ui/TextField';
 import { useAuth } from '@/lib/auth';
-import { supabase } from '@/lib/supabase';
+import { gatewayChangePassword } from '@/lib/nativeAuth';
 import { Colors, FontSize, Spacing } from '@/theme/colors';
 
 // In-app change password for a logged-in user. Native port of the web app's
@@ -17,11 +17,9 @@ import { Colors, FontSize, Spacing } from '@/theme/colors';
 // → email a link → set the new password in the recovery session). This mobile
 // screen does it directly per spec: verify the current password, then update.
 //
-// NOTE: Supabase's `updateUser({ password })` does NOT verify the current
-// password on its own, so we re-authenticate with `signInWithPassword` first
-// (exactly what the web `requestPasswordChange` does). That reauth call is
-// captcha-gated on this project, so this flow won't complete until captcha is
-// resolved — same dependency as the forgot-password flow.
+// Native sends both passwords through the attestation-gated auth gateway. The
+// gateway verifies the current password with a service-role-only database RPC,
+// then uses the captcha-exempt admin API to set the replacement password.
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
@@ -64,27 +62,14 @@ export default function ChangePasswordScreen() {
     }
 
     setSaving(true);
-
-    // 1. Re-authenticate — confirm the current password is correct, since
-    //    updateUser won't check it. A failure here is almost always a wrong
-    //    current password.
-    const { error: reauthError } = await supabase.auth.signInWithPassword({
-      email,
-      password: currentPw,
-    });
-    if (reauthError) {
-      setSaving(false);
-      setError('Current password is incorrect.');
-      return;
-    }
-
-    // 2. Set the new password on the (now freshly re-authenticated) session.
-    const { error: updateError } = await supabase.auth.updateUser({
-      password: newPw,
-    });
+    const result = await gatewayChangePassword(email, currentPw, newPw);
     setSaving(false);
-    if (updateError) {
-      setError(updateError.message || "Couldn't update your password.");
+    if (!result.ok) {
+      setError(
+        result.code === 'incorrect_password'
+          ? 'Current password is incorrect.'
+          : result.message || "Couldn't update your password.",
+      );
       return;
     }
 
@@ -178,6 +163,9 @@ export default function ChangePasswordScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
 
       <Button label="Update Password" onPress={handleSave} loading={saving} />
+      <Link href="/forgot-password" style={styles.forgotLink}>
+        Forgot your current password?
+      </Link>
     </AuthLayout>
   );
 }
@@ -191,5 +179,12 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  forgotLink: {
+    color: Colors.yellow,
+    fontSize: FontSize.sm,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginTop: Spacing.sm,
   },
 });

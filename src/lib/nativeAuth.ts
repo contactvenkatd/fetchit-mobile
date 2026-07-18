@@ -2,23 +2,23 @@
 //
 // Because this project keeps Supabase's project-wide CAPTCHA **on** (so the web
 // app's Turnstile protection is untouched), the mobile app cannot call the
-// captcha-gated GoTrue endpoints (signUp / signInWithOtp / resend) directly —
-// RN can't render Turnstile, so those return `captcha_failed`. Instead, native
-// auth routes through the `auth-gateway` edge function, which is gated by App
-// Attest / Play Integrity and mints the email OTP server-side via the admin API
-// (captcha-exempt), emailing it directly.
+// captcha-gated GoTrue endpoints (signUp / signInWithOtp / resend /
+// resetPasswordForEmail / signInWithPassword) directly — RN can't render
+// Turnstile, so those return `captcha_failed`. Instead, native auth routes
+// through the `auth-gateway` edge function, which is gated by App Attest / Play
+// Integrity and performs the corresponding server-side operation.
 //
 // This makes web and native mutually exclusive by construction:
 //   • web    → GoTrue + Turnstile (unchanged), and
 //   • native → auth-gateway + attestation (here).
 //
 // Native login is **passwordless**: signup still sets a password (used for web
-// login), but native login is email + attestation + one-time code. There is no
-// captcha-free way to verify a password server-side, so the email OTP + device
-// attestation are the factors.
+// login), but native login is email + attestation + one-time code. Password
+// verification for an in-app password change is isolated in a service-role-only
+// database function called by the gateway.
 //
-// OTP verification itself (otp.tsx → supabase.auth.verifyOtp) is NOT
-// captcha-gated, so it still runs directly against GoTrue.
+// OTP verification is also sent through the gateway so every native email-auth
+// action has the same device-attestation and request-binding checks.
 import { buildAttestation, markCurrentKeyUnregistered, type AttestAction } from '@/attestation';
 import { supabase } from '@/lib/supabase';
 import { canAttemptRecovery } from '@/lib/recovery-policy';
@@ -45,7 +45,13 @@ const DEVICE_UNVERIFIED =
   "We couldn't verify this device. App Attest requires a physical device — this won't work on a Simulator.";
 
 async function invokeGateway(
-  action: 'signup' | 'login' | 'resend' | 'verify_otp',
+  action:
+    | 'signup'
+    | 'login'
+    | 'resend'
+    | 'verify_otp'
+    | 'forgot_password'
+    | 'change_password',
   extra: Record<string, unknown>,
   attestAction: AttestAction,
   recoveryAttempts = 0,
@@ -110,4 +116,22 @@ export function gatewayResend(email: string): Promise<NativeAuthResult> {
 
 export async function gatewayVerifyOtp(email: string, token: string): Promise<NativeAuthResult> {
   return invokeGateway('verify_otp', { email, token }, 'verify_otp');
+}
+
+/** Generate and email a recovery link without revealing whether the account exists. */
+export function gatewayForgotPassword(email: string): Promise<NativeAuthResult> {
+  return invokeGateway('forgot_password', { email }, 'forgot_password');
+}
+
+/** Verify the current password and replace it, entirely behind the attested gateway. */
+export function gatewayChangePassword(
+  email: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<NativeAuthResult> {
+  return invokeGateway(
+    'change_password',
+    { email, current_password: currentPassword, new_password: newPassword },
+    'change_password',
+  );
 }

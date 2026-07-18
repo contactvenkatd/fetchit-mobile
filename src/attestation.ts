@@ -24,7 +24,14 @@ import { canAttemptRecovery } from '@/lib/recovery-policy';
 
 const AppAttest = requireOptionalNativeModule<AppAttestNativeModule>('AppAttest');
 
-export type AttestAction = 'signup' | 'login' | 'resend' | 'verify_otp' | 'checkout';
+export type AttestAction =
+  | 'signup'
+  | 'login'
+  | 'resend'
+  | 'verify_otp'
+  | 'forgot_password'
+  | 'change_password'
+  | 'checkout';
 export type AttestStatus = 'ok' | 'skipped' | 'failed';
 export type AttestPlatform = 'ios' | 'android' | 'web';
 

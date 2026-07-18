@@ -272,27 +272,30 @@ Flow (`src/lib/nativeAuth.ts` → `auth-gateway`):
    are **captcha-exempt**): `admin.createUser` (signup) and
    `admin.generateLink({ type: 'magiclink' })` to mint the one-time code, emailed
    directly via Resend.
-3. Client verifies the code on `otp.tsx` with `verifyOtp({ type: 'email' })` —
-   **not** captcha-gated, so it runs directly against GoTrue.
+3. Client sends the code through the gateway's attested `verify_otp` action,
+   which calls `verifyOtp({ type: 'email' })` and returns the resulting session.
 
-**Native login is PASSWORDLESS.** There is no captcha-free way to verify a
-password server-side (`signInWithPassword` itself demands a captcha token), so
-native login = **email one-time code + device attestation**. Signup still stores
-a password (used for **web** login); it just isn't a native login factor.
+**Native login is PASSWORDLESS.** `signInWithPassword` demands a CAPTCHA token,
+so native login = **email one-time code + device attestation**. Signup still
+stores a password (used for **web** login); it just isn't a native login factor.
 `login.tsx` collects only an email; `email_exists()` stops login from creating
 accounts. **Native auth therefore requires a physical device** (App Attest is
 unavailable on the Simulator — you can't sign up/in there).
 
-> Still on GoTrue directly (not yet gatewayed): **forgot-password** and in-app
-> **change-password**. Both are captcha-gated, so they remain blocked on native
-> until moved behind the gateway — a follow-up. Native login being passwordless
-> makes forgot-password non-essential on native.
+**Forgot-password** and in-app **change-password** also use the attested gateway.
+Forgot-password generates a recovery link with the admin API and sends it via
+Resend without revealing whether the account exists. Change-password verifies
+the current bcrypt password through the service-role-only
+`verify_user_password()` RPC, then updates it with `admin.updateUserById()`.
+The recovery landing screen still calls authenticated `updateUser({ password })`
+directly; that second step is not CAPTCHA-gated once the recovery session exists.
 
 **Manual setup checklist** (nothing here is auto-deployed from the mobile repo):
 1. **Keep project CAPTCHA ON** (Auth → Settings → Turnstile) — this protects web
    and is the reason native uses the gateway. Do **not** turn it off.
 2. **SQL editor:** run `attested_devices.sql`, `attestation_challenges.sql`,
-   `email_exists.sql`, and (if not already present) `rate_limits.sql`.
+   `email_exists.sql`, `verify_user_password.sql`, and (if not already present)
+   `rate_limits.sql`.
 3. **Edge functions:** create `attestation-challenge`, `verify-app-attest`,
    `verify-play-integrity`, `auth-gateway`; paste each `index.ts`. **Turn "Verify
    JWT" OFF** for all four (they must accept anonymous pre-session calls and
