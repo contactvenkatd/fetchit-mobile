@@ -46,10 +46,6 @@ export default function AppLayout() {
         options={{ title: 'Wishlist', headerShown: true, headerBackVisible: true }}
       />
       <Stack.Screen
-        name="auto-reorder"
-        options={{ title: 'Auto-Reorder', headerShown: true, headerBackVisible: true }}
-      />
-      <Stack.Screen
         name="family-sharing"
         options={{ title: 'Family Sharing', headerShown: true, headerBackVisible: true }}
       />

@@ -1,6 +1,6 @@
 // Data helpers for the protected app screens — the mobile counterpart of the
-// data slice of the web app's utils.js (orders, spend analytics, wishlist,
-// auto-reorder). All queries hit the SAME Supabase project as the web app and
+// data slice of the web app's utils.js (orders, spend analytics, wishlist).
+// All queries hit the SAME Supabase project as the web app and
 // rely on Row Level Security to scope rows to the signed-in user, so no explicit
 // user_id filter is needed (RLS + the table's auth.uid() defaults handle it).
 //
@@ -219,100 +219,4 @@ export async function getWishlist(): Promise<WishlistItem[]> {
 export async function removeWishlistItem(id: string): Promise<void> {
   const { error } = await supabase.from('wishlists').delete().eq('id', id);
   if (error) console.error('removeWishlistItem failed:', error.message);
-}
-
-// ---------------------------------------------------------------------------
-// Auto-reorder — Supabase "auto_reorders" table, scoped to the user via RLS.
-// Recurring purchase schedules set from the chat; shown on /auto-reorder.
-// ---------------------------------------------------------------------------
-
-// The frequency options offered in the chat picker, in order. `key` is the
-// stored value; `label` is the human label.
-export const FREQUENCY_OPTIONS: { key: string; label: string }[] = [
-  { key: 'weekly', label: 'Weekly' },
-  { key: 'biweekly', label: 'Every 2 weeks' },
-  { key: 'monthly', label: 'Monthly' },
-  { key: 'every_2_months', label: 'Every 2 months' },
-  { key: 'every_3_months', label: 'Every 3 months' },
-];
-
-// Human label for a stored frequency key.
-export function frequencyLabel(key: string): string {
-  const opt = FREQUENCY_OPTIONS.find((o) => o.key === key);
-  return opt ? opt.label : key;
-}
-
-export type AutoReorder = {
-  id: string;
-  productName: string | null;
-  productUrl: string | null;
-  productImage: string | null;
-  retailer: string | null;
-  price: number | null;
-  frequency: string;
-  nextOrderDate: string | null;
-  lastOrderedAt: string | null;
-  active: boolean;
-  createdAt: string | null;
-};
-
-type AutoReorderRow = {
-  id: string;
-  product_name?: string | null;
-  product_url?: string | null;
-  product_image?: string | null;
-  retailer?: string | null;
-  price?: number | string | null;
-  frequency?: string | null;
-  next_order_date?: string | null;
-  last_ordered_at?: string | null;
-  active?: boolean | null;
-  created_at?: string | null;
-};
-
-const mapAutoReorder = (row: AutoReorderRow): AutoReorder => ({
-  id: row.id,
-  productName: row.product_name ?? null,
-  productUrl: row.product_url ?? null,
-  productImage: row.product_image ?? null,
-  retailer: row.retailer ?? null,
-  price: row.price != null ? Number(row.price) : null,
-  frequency: row.frequency ?? '',
-  nextOrderDate: row.next_order_date ?? null,
-  lastOrderedAt: row.last_ordered_at ?? null,
-  active: row.active !== false,
-  createdAt: row.created_at ?? null,
-});
-
-export async function getAutoReorders(): Promise<AutoReorder[]> {
-  const { data, error } = await supabase
-    .from('auto_reorders')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (error) {
-    console.error('getAutoReorders failed:', error.message);
-    return [];
-  }
-  return (data ?? []).map(mapAutoReorder);
-}
-
-// Pause/resume an auto-reorder (toggle `active`).
-export async function setAutoReorderActive(
-  id: string,
-  active: boolean,
-): Promise<{ error: { message: string } | null }> {
-  const { error } = await supabase
-    .from('auto_reorders')
-    .update({ active })
-    .eq('id', id);
-  if (error) {
-    console.error('setAutoReorderActive failed:', error.message);
-    return { error: { message: error.message } };
-  }
-  return { error: null };
-}
-
-export async function deleteAutoReorder(id: string): Promise<void> {
-  const { error } = await supabase.from('auto_reorders').delete().eq('id', id);
-  if (error) console.error('deleteAutoReorder failed:', error.message);
 }

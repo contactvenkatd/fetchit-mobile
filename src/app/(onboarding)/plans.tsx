@@ -40,7 +40,7 @@ const PLANS: PlanCard[] = [
     name: 'Pro',
     price: '$19.99/mo',
     tagline: 'Most popular',
-    features: ['Everything in Plus', 'Auto-reorder', 'Wishlist & analytics'],
+    features: ['Everything in Plus', 'Wishlist & analytics'],
     accent: Colors.planPro,
     popular: true,
   },

@@ -18,7 +18,6 @@ const LINKS: { label: string; href: Href; icon: string }[] = [
   { label: 'Order History', href: '/(app)/order-history', icon: '📦' },
   { label: 'Orders & Analytics', href: '/(app)/orders', icon: '📊' },
   { label: 'Wishlist', href: '/(app)/wishlist', icon: '♡' },
-  { label: 'Auto-Reorder', href: '/(app)/auto-reorder', icon: '🔁' },
   { label: 'Family Sharing', href: '/(app)/family-sharing', icon: '👨‍👩‍👧' },
   { label: 'Cards & Address', href: '/(app)/cards-address', icon: '💳' },
   { label: 'Change Password', href: '/(app)/change-password', icon: '🔑' },
