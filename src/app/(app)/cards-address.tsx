@@ -1,5 +1,5 @@
 import {
-  CardField,
+  CardForm,
   PlatformPay,
   PlatformPayButton,
   useStripe,
@@ -98,9 +98,11 @@ export default function CardsAddressScreen() {
     let active = true;
     isPlatformPaySupported()
       .then((supported) => {
+        console.log("applepay_debug supported:", supported);
         if (active) setApplePaySupported(supported);
       })
-      .catch(() => {
+      .catch((err) => {
+        console.log("applepay_debug error:", JSON.stringify(err), err?.message);
         if (active) setApplePaySupported(false);
       });
     return () => {
@@ -424,10 +426,9 @@ export default function CardsAddressScreen() {
                 </>
               ) : null}
               <Text style={styles.fieldLabel}>Card details</Text>
-              <CardField
-                postalCodeEnabled
+              <CardForm
                 placeholders={{ number: '4242 4242 4242 4242' }}
-                onCardChange={(d) => setCardComplete(d.complete)}
+                onFormComplete={(d) => setCardComplete(d.complete)}
                 cardStyle={{
                   backgroundColor: Colors.surface,
                   textColor: Colors.text,
@@ -513,7 +514,7 @@ const styles = StyleSheet.create({
   // Card edit sub-form
   cardForm: { gap: Spacing.sm, marginTop: Spacing.sm },
   fieldLabel: { color: Colors.textMuted, fontSize: FontSize.sm, fontWeight: '600' },
-  cardField: { width: '100%', height: 50, marginVertical: Spacing.xs },
+  cardField: { width: '100%', height: 200, marginVertical: Spacing.xs },
   applePayButton: { width: '100%', height: 50, marginVertical: Spacing.xs },
   divider: {
     flexDirection: 'row',

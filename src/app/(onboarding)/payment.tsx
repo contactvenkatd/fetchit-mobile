@@ -1,4 +1,4 @@
-import { CardField, useStripe } from '@stripe/stripe-react-native';
+import { CardForm, useStripe } from '@stripe/stripe-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
@@ -44,7 +44,7 @@ export default function PaymentScreen() {
       return;
     }
 
-    // 2. Confirm the card payment on-device — the CardField holds the entered
+    // 2. Confirm the card payment on-device — the CardForm holds the entered
     //    details, so Stripe tokenizes them; raw card data never touches our state.
     const { paymentIntent, error: payErr } = await confirmPayment(sub.clientSecret, {
       paymentMethodType: 'Card',
@@ -80,10 +80,9 @@ export default function PaymentScreen() {
         router.canGoBack() ? router.back() : router.replace('/(onboarding)/plans')
       }>
       <Text style={styles.label}>Card details</Text>
-      <CardField
-        postalCodeEnabled
+      <CardForm
         placeholders={{ number: '4242 4242 4242 4242' }}
-        onCardChange={(d) => setCardComplete(d.complete)}
+        onFormComplete={(d) => setCardComplete(d.complete)}
         cardStyle={{
           backgroundColor: Colors.surface,
           textColor: Colors.text,
@@ -112,7 +111,7 @@ export default function PaymentScreen() {
 
 const styles = StyleSheet.create({
   label: { color: Colors.textMuted, fontSize: FontSize.sm, fontWeight: '600' },
-  cardField: { width: '100%', height: 50, marginVertical: Spacing.xs },
+  cardField: { width: '100%', height: 200, marginVertical: Spacing.xs },
   error: { color: Colors.error, fontSize: FontSize.sm, textAlign: 'center' },
   note: { color: Colors.textFaint, fontSize: FontSize.xs, textAlign: 'center' },
 });

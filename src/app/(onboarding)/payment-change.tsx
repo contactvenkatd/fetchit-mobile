@@ -1,4 +1,4 @@
-import { CardField, useStripe } from '@stripe/stripe-react-native';
+import { CardForm, useStripe } from '@stripe/stripe-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
@@ -15,7 +15,7 @@ import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 // a route param.
 //   • Paid plan, card on file: createSubscription charges the saved default card
 //     off-session (no client secret to confirm) → record plan.
-//   • Paid plan, no card: collect one via CardField, confirmPayment → saveCard.
+//   • Paid plan, no card: collect one via CardForm, confirmPayment → saveCard.
 //   • Free (downgrade): no charge — just record the plan.
 // Either way it lands back on /(app)/account.
 
@@ -90,7 +90,7 @@ export default function PaymentChangeScreen() {
       return;
     }
 
-    // With no card on file we must collect one via the CardField first.
+    // With no card on file we must collect one via the CardForm first.
     if (!hasCard && !cardComplete) {
       setError('Please enter your full card details.');
       setSaving(false);
@@ -179,10 +179,9 @@ export default function PaymentChangeScreen() {
       {isPaid && !hasCard ? (
         <>
           <Text style={styles.label}>Card details</Text>
-          <CardField
-            postalCodeEnabled
+          <CardForm
             placeholders={{ number: '4242 4242 4242 4242' }}
-            onCardChange={(d) => setCardComplete(d.complete)}
+            onFormComplete={(d) => setCardComplete(d.complete)}
             cardStyle={{
               backgroundColor: Colors.surface,
               textColor: Colors.text,
@@ -215,7 +214,7 @@ export default function PaymentChangeScreen() {
 
 const styles = StyleSheet.create({
   label: { color: Colors.textMuted, fontSize: FontSize.sm, fontWeight: '600' },
-  cardField: { width: '100%', height: 50, marginVertical: Spacing.xs },
+  cardField: { width: '100%', height: 200, marginVertical: Spacing.xs },
   error: { color: Colors.error, fontSize: FontSize.sm, textAlign: 'center' },
   note: { color: Colors.textFaint, fontSize: FontSize.xs, textAlign: 'center' },
   // Saved-card display row (mirrors cards-address.tsx).

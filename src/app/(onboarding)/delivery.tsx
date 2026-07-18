@@ -1,4 +1,4 @@
-import { CardField, useStripe } from '@stripe/stripe-react-native';
+import { CardForm, useStripe } from '@stripe/stripe-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -324,10 +324,9 @@ export default function DeliveryScreen() {
           </Text>
 
           <Text style={styles.fieldLabel}>Card details</Text>
-          <CardField
-            postalCodeEnabled
+          <CardForm
             placeholders={{ number: '4242 4242 4242 4242' }}
-            onCardChange={(d) => setCardComplete(d.complete)}
+            onFormComplete={(d) => setCardComplete(d.complete)}
             cardStyle={{
               backgroundColor: Colors.surface,
               textColor: Colors.text,
@@ -406,7 +405,7 @@ const styles = StyleSheet.create({
   rowItem: { flex: 1 },
   saveBtn: { alignSelf: 'stretch', marginTop: Spacing.sm },
   fieldLabel: { color: Colors.textMuted, fontSize: FontSize.sm, fontWeight: '600' },
-  cardField: { width: '100%', height: 50, marginVertical: Spacing.xs },
+  cardField: { width: '100%', height: 200, marginVertical: Spacing.xs },
   note: { color: Colors.textFaint, fontSize: FontSize.xs, lineHeight: 18 },
   error: { color: Colors.error, fontSize: FontSize.sm },
   back: {
