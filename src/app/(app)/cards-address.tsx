@@ -99,7 +99,7 @@ export default function CardsAddressScreen() {
     isPlatformPaySupported()
       .then((supported) => {
         console.log("applepay_debug supported:", supported);
-        if (active) setApplePaySupported(supported);
+        if (active) setApplePaySupported(true); // TEMP: force true to test button visibility
       })
       .catch((err) => {
         console.log("applepay_debug error:", JSON.stringify(err), err?.message);
@@ -395,6 +395,7 @@ export default function CardsAddressScreen() {
             <Text style={styles.noCard}>No card on file yet.</Text>
           )}
 
+          {(() => { console.log("render_debug editingCard:", editingCard, "applePaySupported:", applePaySupported); return null; })()}
           {!editingCard ? (
             <Button
               label={card ? 'Update card' : 'Add card'}

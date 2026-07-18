@@ -1,11 +1,17 @@
-import { CardForm, useStripe } from '@stripe/stripe-react-native';
+import {
+  CardForm,
+  PlatformPay,
+  PlatformPayButton,
+  useStripe,
+} from '@stripe/stripe-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useState } from 'react';
-import { StyleSheet, Text } from 'react-native';
+import { useEffect, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AuthLayout } from '@/components/AuthLayout';
 import { Button } from '@/components/ui/Button';
 import { createSubscription, saveCard } from '@/lib/api';
+import { monthlyDisplay, type PlanName } from '@/lib/stripe';
 import { supabase } from '@/lib/supabase';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
@@ -18,10 +24,39 @@ export default function PaymentScreen() {
   const { plan: planParam } = useLocalSearchParams<{ plan?: string }>();
   const plan = typeof planParam === 'string' ? planParam : '';
   const billing = 'monthly' as const; // plans screen offers monthly pricing
-  const { confirmPayment } = useStripe();
+  const {
+    confirmPayment,
+    confirmPlatformPayPayment,
+    isPlatformPaySupported,
+  } = useStripe();
   const [cardComplete, setCardComplete] = useState(false);
+  const [applePaySupported, setApplePaySupported] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    isPlatformPaySupported()
+      .then((supported) => {
+        if (active) setApplePaySupported(supported);
+      })
+      .catch(() => {
+        if (active) setApplePaySupported(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isPlatformPaySupported]);
+
+  async function finishSubscription(paymentMethodId?: string) {
+    if (paymentMethodId) {
+      const { error: cardErr } = await saveCard(paymentMethodId);
+      if (cardErr) console.warn('saveCard after subscription failed:', cardErr.message);
+    }
+    await supabase.auth.updateUser({ data: { plan, plan_billing: billing } });
+    setSaving(false);
+    router.replace('/(app)/chat');
+  }
 
   async function handleContinue() {
     setError('');
@@ -59,17 +94,48 @@ export default function PaymentScreen() {
     //    FetchIt can charge it for future off-session checkouts. Best-effort: the
     //    subscription is already paid, so a save-card hiccup shouldn't strand the
     //    user — log it and continue.
-    const paymentMethodId = paymentIntent?.paymentMethod?.id;
-    if (paymentMethodId) {
-      const { error: cardErr } = await saveCard(paymentMethodId);
-      if (cardErr) console.warn('saveCard after subscription failed:', cardErr.message);
+    await finishSubscription(paymentIntent?.paymentMethod?.id);
+  }
+
+  async function handleApplePay() {
+    setError('');
+    if (!plan) {
+      setError('No plan selected. Go back and choose a plan.');
+      return;
+    }
+    setSaving(true);
+
+    const { data: sub, error: subErr } = await createSubscription({ plan, billing });
+    if (subErr || !sub?.clientSecret) {
+      setError(subErr?.message ?? 'Could not start your subscription.');
+      setSaving(false);
+      return;
     }
 
-    // 4. Record the new plan on the user (mirrors the web's finalizePlan).
-    await supabase.auth.updateUser({ data: { plan, plan_billing: billing } });
+    const amount = monthlyDisplay(plan as PlanName, billing).toFixed(2);
+    const { paymentIntent, error: payErr } = await confirmPlatformPayPayment(
+      sub.clientSecret,
+      {
+        applePay: {
+          merchantCountryCode: 'US',
+          currencyCode: 'USD',
+          cartItems: [
+            {
+              label: `FetchIt ${plan}`,
+              amount,
+              paymentType: PlatformPay.PaymentType.Immediate,
+            },
+          ],
+        },
+      },
+    );
+    if (payErr) {
+      setError(payErr.message ?? 'Payment could not be completed.');
+      setSaving(false);
+      return;
+    }
 
-    setSaving(false);
-    router.replace('/(app)/chat');
+    await finishSubscription(paymentIntent?.paymentMethod?.id);
   }
 
   return (
@@ -79,6 +145,24 @@ export default function PaymentScreen() {
       onBack={() =>
         router.canGoBack() ? router.back() : router.replace('/(onboarding)/plans')
       }>
+      {applePaySupported ? (
+        <>
+          <Text style={styles.label}>Pay with Apple Pay</Text>
+          <PlatformPayButton
+            type={PlatformPay.ButtonType.Pay}
+            appearance={PlatformPay.ButtonStyle.White}
+            borderRadius={Radius.pill}
+            onPress={handleApplePay}
+            disabled={saving}
+            style={styles.applePayButton}
+          />
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or enter card details</Text>
+            <View style={styles.dividerLine} />
+          </View>
+        </>
+      ) : null}
       <Text style={styles.label}>Card details</Text>
       <CardForm
         placeholders={{ number: '4242 4242 4242 4242' }}
@@ -111,6 +195,15 @@ export default function PaymentScreen() {
 
 const styles = StyleSheet.create({
   label: { color: Colors.textMuted, fontSize: FontSize.sm, fontWeight: '600' },
+  applePayButton: { width: '100%', height: 50, marginVertical: Spacing.xs },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginVertical: Spacing.xs,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
+  dividerText: { color: Colors.textFaint, fontSize: FontSize.xs },
   cardField: { width: '100%', height: 200, marginVertical: Spacing.xs },
   error: { color: Colors.error, fontSize: FontSize.sm, textAlign: 'center' },
   note: { color: Colors.textFaint, fontSize: FontSize.xs, textAlign: 'center' },

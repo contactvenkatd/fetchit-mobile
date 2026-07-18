@@ -1,4 +1,9 @@
-import { CardForm, useStripe } from '@stripe/stripe-react-native';
+import {
+  CardForm,
+  PlatformPay,
+  PlatformPayButton,
+  useStripe,
+} from '@stripe/stripe-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -14,6 +19,7 @@ import {
 } from '@/lib/api';
 import { attest } from '@/attestation';
 import { supabase } from '@/lib/supabase';
+import { monthlyDisplay, type PlanName } from '@/lib/stripe';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 // Onboarding step 3 — Delivery & Payment. Collects the shipping address and the
@@ -44,7 +50,13 @@ export default function DeliveryScreen() {
   const plan = typeof planParam === 'string' ? planParam : 'Free';
   const isPaid = plan !== 'Free';
 
-  const { confirmPayment, confirmSetupIntent } = useStripe();
+  const {
+    confirmPayment,
+    confirmSetupIntent,
+    confirmPlatformPayPayment,
+    confirmPlatformPaySetupIntent,
+    isPlatformPaySupported,
+  } = useStripe();
 
   // Shipping address.
   const [address, setAddress] = useState<AddressForm>(EMPTY_ADDRESS);
@@ -52,6 +64,7 @@ export default function DeliveryScreen() {
 
   // Payment card.
   const [cardComplete, setCardComplete] = useState(false);
+  const [applePaySupported, setApplePaySupported] = useState(false);
   const [savingCard, setSavingCard] = useState(false);
   const [error, setError] = useState('');
 
@@ -66,6 +79,20 @@ export default function DeliveryScreen() {
   useEffect(() => () => {
     if (toastTimer.current) clearTimeout(toastTimer.current);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    isPlatformPaySupported()
+      .then((supported) => {
+        if (active) setApplePaySupported(supported);
+      })
+      .catch(() => {
+        if (active) setApplePaySupported(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [isPlatformPaySupported]);
 
   const setField = (key: keyof AddressForm) => (value: string) =>
     setAddress((a) => ({ ...a, [key]: value }));
@@ -219,6 +246,113 @@ export default function DeliveryScreen() {
     router.replace('/(onboarding)/name');
   }
 
+  async function handleApplePay() {
+    setError('');
+    setSavingCard(true);
+
+    const attestation = await attest('checkout');
+    if (attestation.status === 'failed') {
+      setError("We couldn't verify this device. Please try again.");
+      setSavingCard(false);
+      return;
+    }
+
+    if (isPaid) {
+      const { data: sub, error: subErr } = await createSubscription({ plan, billing: 'monthly' });
+      if (subErr || !sub?.clientSecret) {
+        setError(subErr?.message ?? 'Could not start your subscription.');
+        setSavingCard(false);
+        return;
+      }
+
+      const amount = monthlyDisplay(plan as PlanName, 'monthly').toFixed(2);
+      const { paymentIntent, error: payErr } = await confirmPlatformPayPayment(
+        sub.clientSecret,
+        {
+          applePay: {
+            merchantCountryCode: 'US',
+            currencyCode: 'USD',
+            cartItems: [
+              {
+                label: `FetchIt ${plan}`,
+                amount,
+                paymentType: PlatformPay.PaymentType.Immediate,
+              },
+            ],
+          },
+        },
+      );
+      if (payErr) {
+        setError(payErr.message ?? 'Payment could not be completed.');
+        setSavingCard(false);
+        return;
+      }
+
+      const paymentMethodId = paymentIntent?.paymentMethod?.id;
+      if (!paymentMethodId) {
+        setError('Your card could not be saved.');
+        setSavingCard(false);
+        return;
+      }
+      const { data: saved, error: cardErr } = await saveCard(paymentMethodId);
+      if (cardErr) {
+        setError(cardErr.message);
+        setSavingCard(false);
+        return;
+      }
+      await persistCard(sub.customerId ?? null, paymentMethodId, saved?.card ?? {});
+      await supabase.auth.updateUser({ data: { plan, plan_billing: 'monthly' } });
+      setSavingCard(false);
+      router.replace('/(onboarding)/name');
+      return;
+    }
+
+    const { data: setup, error: setupErr } = await createSetupIntent();
+    if (setupErr || !setup) {
+      setError(setupErr?.message ?? 'Could not start card setup.');
+      setSavingCard(false);
+      return;
+    }
+
+    const { setupIntent, error: confirmErr } = await confirmPlatformPaySetupIntent(
+      setup.clientSecret,
+      {
+        applePay: {
+          merchantCountryCode: 'US',
+          currencyCode: 'USD',
+          cartItems: [
+            {
+              label: 'FetchIt',
+              amount: '0.00',
+              paymentType: PlatformPay.PaymentType.Immediate,
+            },
+          ],
+        },
+      },
+    );
+    if (confirmErr) {
+      setError(confirmErr.message ?? 'Your card could not be saved.');
+      setSavingCard(false);
+      return;
+    }
+
+    const paymentMethodId = setupIntent?.paymentMethod?.id;
+    if (!paymentMethodId) {
+      setError('Your card could not be saved.');
+      setSavingCard(false);
+      return;
+    }
+    const { data: saved, error: cardErr } = await saveCard(paymentMethodId);
+    if (cardErr) {
+      setError(cardErr.message);
+      setSavingCard(false);
+      return;
+    }
+    await persistCard(setup.customerId ?? null, paymentMethodId, saved?.card ?? {});
+    setSavingCard(false);
+    router.replace('/(onboarding)/name');
+  }
+
   // Free plan only — skip the card and just keep the address.
   async function handleSkip() {
     setSavingCard(true);
@@ -323,6 +457,26 @@ export default function DeliveryScreen() {
               : 'The card FetchIt charges when it checks out for you.'}
           </Text>
 
+          {applePaySupported ? (
+            <>
+              <Text style={styles.fieldLabel}>
+                {isPaid ? 'Pay with Apple Pay' : 'Add card with Apple Pay'}
+              </Text>
+              <PlatformPayButton
+                type={isPaid ? PlatformPay.ButtonType.Pay : PlatformPay.ButtonType.SetUp}
+                appearance={PlatformPay.ButtonStyle.White}
+                borderRadius={Radius.pill}
+                onPress={handleApplePay}
+                disabled={savingCard}
+                style={styles.applePayButton}
+              />
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or enter card details</Text>
+                <View style={styles.dividerLine} />
+              </View>
+            </>
+          ) : null}
           <Text style={styles.fieldLabel}>Card details</Text>
           <CardForm
             placeholders={{ number: '4242 4242 4242 4242' }}
@@ -405,6 +559,15 @@ const styles = StyleSheet.create({
   rowItem: { flex: 1 },
   saveBtn: { alignSelf: 'stretch', marginTop: Spacing.sm },
   fieldLabel: { color: Colors.textMuted, fontSize: FontSize.sm, fontWeight: '600' },
+  applePayButton: { width: '100%', height: 50, marginVertical: Spacing.xs },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginVertical: Spacing.xs,
+  },
+  dividerLine: { flex: 1, height: 1, backgroundColor: Colors.border },
+  dividerText: { color: Colors.textFaint, fontSize: FontSize.xs },
   cardField: { width: '100%', height: 200, marginVertical: Spacing.xs },
   note: { color: Colors.textFaint, fontSize: FontSize.xs, lineHeight: 18 },
   error: { color: Colors.error, fontSize: FontSize.sm },
