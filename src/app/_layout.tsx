@@ -168,7 +168,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY}>
+        <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY} merchantIdentifier="merchant.ai.compreo.fetchit">
           <AuthProvider>
             <ThemeProvider value={FetchItTheme}>
               <StatusBar style="light" />
