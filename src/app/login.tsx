@@ -60,6 +60,7 @@ export default function LoginScreen() {
 
       const user = authData?.user;
       const isNewUser = user && user.created_at === user.last_sign_in_at;
+      console.log('google_debug', 'created_at:', user?.created_at, 'last_sign_in_at:', user?.last_sign_in_at, 'isNewUser:', isNewUser);
       if (isNewUser) {
         await supabase.auth.signOut();
         setGoogleLoading(false);
