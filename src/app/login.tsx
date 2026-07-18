@@ -48,13 +48,22 @@ export default function LoginScreen() {
         return;
       }
 
-      const { error: authError } = await supabase.auth.signInWithIdToken({
+      const { data: authData, error: authError } = await supabase.auth.signInWithIdToken({
         provider: 'google',
         token: idToken,
       });
       if (authError) {
         setGoogleLoading(false);
         setError('Could not sign in with Google. Please try again.');
+        return;
+      }
+
+      const user = authData?.user;
+      const isNewUser = user && user.created_at === user.last_sign_in_at;
+      if (isNewUser) {
+        await supabase.auth.signOut();
+        setGoogleLoading(false);
+        setError('No account found for this Google email. Please sign up first.');
         return;
       }
 
