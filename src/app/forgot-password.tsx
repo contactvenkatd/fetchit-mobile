@@ -55,7 +55,7 @@ export default function ForgotPasswordScreen() {
       <AuthLayout
         title="Check your email"
         subtitle="A password reset link is on its way"
-        onBack={() => router.replace('/login')}
+        onBack={() => router.back()}
         footer={
           <View style={styles.footerRow}>
             <Text style={styles.footerText}>Back to </Text>
@@ -74,7 +74,7 @@ export default function ForgotPasswordScreen() {
           </Text>
         </View>
 
-        <Button label="Back to Sign In" onPress={() => router.replace('/login')} />
+        <Button label="Back to Sign In" onPress={() => router.back()} />
         <Button
           label="Use a different email"
           variant="ghost"
@@ -88,7 +88,7 @@ export default function ForgotPasswordScreen() {
     <AuthLayout
       title="Forgot your password?"
       subtitle="Enter your email and we'll send you a reset link"
-      onBack={() => router.replace('/login')}
+      onBack={() => router.back()}
       footer={
         <View style={styles.footerRow}>
           <Text style={styles.footerText}>Remembered it? </Text>
