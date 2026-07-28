@@ -44,7 +44,7 @@
 import { createClient } from "npm:@supabase/supabase-js@^2";
 
 const RESEND_API_URL = "https://api.resend.com/emails";
-const FROM = "FetchIt 🐕 <onboarding@resend.dev>";
+const FROM = "Stratum Technologies <onboarding@resend.dev>";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") ?? "*",
@@ -60,9 +60,14 @@ const json = (body: unknown, status = 200) =>
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const RESET_REDIRECT = "fetchitmobile://reset-password";
+type App = "fetchit" | "yumit";
 
 // Branded OTP email (self-contained; does not touch the send-email function).
-function otpEmailHtml(code: string): string {
+function otpEmailHtml(code: string, app: App): string {
+  const isFetchIt = app === "fetchit";
+  const brandColor = isFetchIt ? "#FFD700" : "#D64545";
+  const brandEmoji = isFetchIt ? "🐕" : "🛒";
+  const productName = isFetchIt ? "FetchIt" : "YumIt";
   return `
   <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
          style="background:#FFFDF7;padding:32px 0;font-family:'Nunito',Arial,sans-serif;">
@@ -71,10 +76,10 @@ function otpEmailHtml(code: string): string {
              style="background:#FFFFFF;border-radius:24px;overflow:hidden;
                     box-shadow:0 20px 50px rgba(26,26,26,0.12);">
         <tr><td style="background:#1A1A1A;padding:24px 32px;">
-          <span style="display:inline-block;background:#FFD700;border-radius:14px;
-                       padding:8px 12px;font-size:22px;line-height:1;">🐕</span>
+          <span style="display:inline-block;background:${brandColor};border-radius:14px;
+                       padding:8px 12px;font-size:22px;line-height:1;">${brandEmoji}</span>
           <span style="color:#FFFFFF;font-weight:800;font-size:22px;
-                       vertical-align:middle;margin-left:10px;">FetchIt</span>
+                       vertical-align:middle;margin-left:10px;">${productName}</span>
         </td></tr>
         <tr><td style="padding:36px 32px 8px;">
           <h1 style="margin:0 0 12px;color:#1A1A1A;font-size:26px;font-weight:800;">
@@ -93,7 +98,11 @@ function otpEmailHtml(code: string): string {
   </table>`;
 }
 
-function recoveryEmailHtml(actionLink: string): string {
+function recoveryEmailHtml(actionLink: string, app: App): string {
+  const isFetchIt = app === "fetchit";
+  const brandColor = isFetchIt ? "#FFD700" : "#D64545";
+  const brandEmoji = isFetchIt ? "🐕" : "🛒";
+  const productName = isFetchIt ? "FetchIt" : "YumIt";
   const safeLink = actionLink.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
   return `
   <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
@@ -103,19 +112,19 @@ function recoveryEmailHtml(actionLink: string): string {
              style="background:#FFFFFF;border-radius:24px;overflow:hidden;
                     box-shadow:0 20px 50px rgba(26,26,26,0.12);">
         <tr><td style="background:#1A1A1A;padding:24px 32px;">
-          <span style="display:inline-block;background:#FFD700;border-radius:14px;
-                       padding:8px 12px;font-size:22px;line-height:1;">🐕</span>
+          <span style="display:inline-block;background:${brandColor};border-radius:14px;
+                       padding:8px 12px;font-size:22px;line-height:1;">${brandEmoji}</span>
           <span style="color:#FFFFFF;font-weight:800;font-size:22px;
-                       vertical-align:middle;margin-left:10px;">FetchIt</span>
+                       vertical-align:middle;margin-left:10px;">${productName}</span>
         </td></tr>
         <tr><td style="padding:36px 32px 32px;">
           <h1 style="margin:0 0 12px;color:#1A1A1A;font-size:26px;font-weight:800;">
             Reset your password</h1>
           <p style="margin:0 0 24px;color:#555;font-size:16px;line-height:1.6;">
-            Tap the button below to choose a new FetchIt password. This link is
+            Tap the button below to choose a new ${productName} password. This link is
             time-limited and can be used once.</p>
           <a href="${safeLink}"
-             style="display:inline-block;background:#FFD700;color:#1A1A1A;
+             style="display:inline-block;background:${brandColor};color:#1A1A1A;
                     text-decoration:none;font-weight:800;border-radius:12px;
                     padding:14px 22px;">Reset Password</a>
           <p style="margin:24px 0 0;color:#999;font-size:13px;">
@@ -144,11 +153,13 @@ async function sendEmail(
   }
 }
 
-async function sendOtpEmail(email: string, code: string): Promise<void> {
+async function sendOtpEmail(email: string, code: string, app: App): Promise<void> {
+  const productName = app === "fetchit" ? "FetchIt" : "YumIt";
+  const brandEmoji = app === "fetchit" ? "🐕" : "🛒";
   await sendEmail(
     email,
-    "Your FetchIt verification code 🐕",
-    otpEmailHtml(code),
+    `Your ${productName} verification code ${brandEmoji}`,
+    otpEmailHtml(code, app),
   );
 }
 
@@ -157,12 +168,13 @@ async function sendOtpEmail(email: string, code: string): Promise<void> {
 async function mintAndEmailOtp(
   admin: ReturnType<typeof createClient>,
   email: string,
+  app: App,
 ): Promise<void> {
   const { data, error } = await admin.auth.admin.generateLink({ type: "magiclink", email });
   if (error) throw error;
   const otp = (data?.properties as { email_otp?: string } | undefined)?.email_otp;
   if (!otp) throw new Error("Could not generate a verification code.");
-  await sendOtpEmail(email, otp);
+  await sendOtpEmail(email, otp, app);
 }
 
 Deno.serve(async (req) => {
@@ -176,6 +188,7 @@ Deno.serve(async (req) => {
       current_password?: string;
       new_password?: string;
       platform?: string;
+      app?: string;
       attestation?: Record<string, unknown> | null;
     };
 
@@ -221,6 +234,10 @@ Deno.serve(async (req) => {
     if (body.platform !== "ios" && body.platform !== "android") {
       return json({ error: "Device verification is required.", code: "bad_platform" }, 403);
     }
+    if (body.app !== "fetchit" && body.app !== "yumit") {
+      return json({ error: "Device verification is required.", code: "bad_app" }, 403);
+    }
+    const app = body.app;
     if (body.attestation.action !== action || body.attestation.email !== email ||
         body.attestation.platform !== body.platform) {
       return json({ error: "Attestation request did not match.", code: "request_binding_mismatch" }, 403);
@@ -256,8 +273,10 @@ Deno.serve(async (req) => {
         try {
           await sendEmail(
             email,
-            "Reset your FetchIt password 🐕",
-            recoveryEmailHtml(actionLink),
+            `Reset your ${app === "fetchit" ? "FetchIt" : "YumIt"} password ${
+              app === "fetchit" ? "🐕" : "🛒"
+            }`,
+            recoveryEmailHtml(actionLink, app),
           );
         } catch (sendError) {
           console.error("Could not send recovery email:", sendError);
@@ -345,7 +364,7 @@ Deno.serve(async (req) => {
           400,
         );
       }
-      await mintAndEmailOtp(admin, email);
+      await mintAndEmailOtp(admin, email, app);
       return json({ ok: true });
     }
 
@@ -357,7 +376,7 @@ Deno.serve(async (req) => {
         404,
       );
     }
-    await mintAndEmailOtp(admin, email);
+    await mintAndEmailOtp(admin, email, app);
     return json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Auth failed.";
