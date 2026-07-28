@@ -70,6 +70,7 @@ async function invokeGateway(
       action,
       ...extra,
       platform: att.payload.platform,
+      app: 'fetchit',
       attestation: att.payload.verify,
     },
   });
