@@ -80,6 +80,11 @@ export async function setGrokApiKey(apiKey: string): Promise<void> {
   await SecureStore.setItemAsync(API_KEY_STORAGE_KEY, value);
 }
 
+/** Check for a device-stored credential without exposing its value to the UI. */
+export async function hasStoredGrokApiKey(): Promise<boolean> {
+  return Boolean(await SecureStore.getItemAsync(API_KEY_STORAGE_KEY));
+}
+
 function isShoppingIntent(value: unknown): value is ShoppingIntent {
   if (!value || typeof value !== 'object') return false;
   const intent = value as Record<string, unknown>;
@@ -101,8 +106,9 @@ export async function parseShoppingIntent(message: string): Promise<ShoppingInte
   if (!input) throw new GrokServiceError('A shopping request is required.');
 
   try {
-    const apiKey = await SecureStore.getItemAsync(API_KEY_STORAGE_KEY);
-    if (!apiKey) throw new Error('No xAI API key is configured in SecureStore.');
+    const environmentApiKey = process.env.XAI_API_KEY?.trim();
+    const apiKey = environmentApiKey || (await SecureStore.getItemAsync(API_KEY_STORAGE_KEY));
+    if (!apiKey) throw new Error('No xAI API key is configured.');
 
     const response = await fetch(XAI_CHAT_COMPLETIONS_URL, {
       method: 'POST',
