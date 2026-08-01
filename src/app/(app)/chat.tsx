@@ -17,6 +17,7 @@ import { ChatHistoryDrawer } from '@/components/ChatHistoryDrawer';
 import { Logo } from '@/components/ui/Logo';
 import { greetingName, useAuth } from '@/lib/auth';
 import type { Chat } from '@/lib/chats';
+import { GrokServiceError, parseShoppingIntent } from '@/services/grokService';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 type Msg = { id: string; role: 'user' | 'assistant'; text: string };
@@ -35,6 +36,7 @@ export default function ChatScreen() {
   const { session } = useAuth();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
   const listRef = useRef<FlatList<Msg>>(null);
@@ -64,24 +66,34 @@ export default function ChatScreen() {
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
   }
 
-  function send(text: string) {
+  async function send(text: string) {
     const body = text.trim();
-    if (!body) return;
+    if (!body || sending) return;
     setDraft('');
     setMessages((prev) => [...prev, { id: nextId(), role: 'user', text: body }]);
+    setSending(true);
 
-    // Mocked assistant reply (web app parity — real AI + product cards land later).
-    setTimeout(() => {
+    try {
+      const intent = await parseShoppingIntent(body);
       setMessages((prev) => [
         ...prev,
         {
           id: nextId(),
           role: 'assistant',
-          text: 'Got it! Let me find the best options for you... 🔍',
+          text: `Got it — searching for ${intent.productQuery}. 🔍`,
         },
       ]);
+    } catch (error) {
+      const text =
+        error instanceof GrokServiceError
+          ? error.userMessage
+          : "I couldn't understand that shopping request right now. Please try again in a moment.";
+      setMessages((prev) => [...prev, { id: nextId(), role: 'assistant', text }]);
+      console.error('Shopping request failed:', error);
+    } finally {
+      setSending(false);
       requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
-    }, 700);
+    }
   }
 
   const empty = messages.length === 0;
@@ -150,9 +162,9 @@ export default function ChatScreen() {
             returnKeyType="send"
           />
           <Pressable
-            style={[styles.sendBtn, !draft.trim() && styles.sendBtnOff]}
+            style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnOff]}
             onPress={() => send(draft)}
-            disabled={!draft.trim()}>
+            disabled={!draft.trim() || sending}>
             <Text style={styles.sendText}>↑</Text>
           </Pressable>
         </View>
