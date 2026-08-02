@@ -20,7 +20,6 @@ const LINKS: { label: string; href: Href; icon: string }[] = [
   { label: 'Wishlist', href: '/(app)/wishlist', icon: '♡' },
   { label: 'Family Sharing', href: '/(app)/family-sharing', icon: '👨‍👩‍👧' },
   { label: 'Cards & Address', href: '/(app)/cards-address', icon: '💳' },
-  { label: 'xAI API Key', href: '/(app)/xai-settings', icon: '✨' },
   { label: 'Change Password', href: '/(app)/change-password', icon: '🔑' },
   { label: 'Terms of Service', href: '/tos', icon: '📜' },
   { label: 'Privacy Policy', href: '/privacy-policy', icon: '🔒' },

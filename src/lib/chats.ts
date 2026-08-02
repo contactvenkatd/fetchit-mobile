@@ -49,3 +49,35 @@ export async function getChats(): Promise<Chat[]> {
   }
   return (data ?? []).map(mapChat);
 }
+
+/** Create a FetchIt chat. `user_id` is supplied by the database default/RLS. */
+export async function createChat(
+  title: string,
+  messages: StoredMessage[],
+): Promise<Chat> {
+  const { data, error } = await supabase
+    .from('chats')
+    .insert({ title, messages, app_source: 'fetchit' })
+    .select('id, title, messages, created_at')
+    .single();
+  if (error) throw new Error(`createChat failed: ${error.message}`);
+  return mapChat(data);
+}
+
+/** Replace the JSON message transcript for an existing RLS-scoped chat. */
+export async function updateChatMessages(
+  chatId: string,
+  messages: StoredMessage[],
+): Promise<void> {
+  const { error } = await supabase
+    .from('chats')
+    .update({ messages })
+    .eq('id', chatId);
+  if (error) throw new Error(`updateChatMessages failed: ${error.message}`);
+}
+
+/** Delete one chat by ID; ownership is enforced by the table's RLS policy. */
+export async function deleteChat(chatId: string): Promise<void> {
+  const { error } = await supabase.from('chats').delete().eq('id', chatId);
+  if (error) throw new Error(`deleteChat failed: ${error.message}`);
+}

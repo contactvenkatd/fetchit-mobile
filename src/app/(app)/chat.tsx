@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   FlatList,
   KeyboardAvoidingView,
   PanResponder,
@@ -16,8 +17,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChatHistoryDrawer } from '@/components/ChatHistoryDrawer';
 import { Logo } from '@/components/ui/Logo';
 import { greetingName, useAuth } from '@/lib/auth';
-import type { Chat } from '@/lib/chats';
-import { GrokServiceError, parseShoppingIntent } from '@/services/grokService';
+import {
+  createChat,
+  updateChatMessages,
+  type Chat,
+  type StoredMessage,
+} from '@/lib/chats';
+import { GrokServiceError, sendChatMessage } from '@/services/grokService';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 type Msg = { id: string; role: 'user' | 'assistant'; text: string };
@@ -31,14 +37,80 @@ const SUGGESTIONS = [
 let seq = 0;
 const nextId = () => `m${(seq += 1)}`;
 
+function TypingIndicator() {
+  const dots = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+  ]).current;
+
+  useEffect(() => {
+    const animations = dots.map((dot, index) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(index * 140),
+          Animated.timing(dot, {
+            toValue: 1,
+            duration: 240,
+            useNativeDriver: true,
+          }),
+          Animated.timing(dot, {
+            toValue: 0,
+            duration: 240,
+            useNativeDriver: true,
+          }),
+          Animated.delay((dots.length - index - 1) * 140),
+        ]),
+      ),
+    );
+
+    animations.forEach((animation) => animation.start());
+    return () => animations.forEach((animation) => animation.stop());
+  }, [dots]);
+
+  return (
+    <View
+      style={[styles.bubble, styles.aiBubble, styles.typingBubble]}
+      accessible
+      accessibilityLabel="Assistant is typing"
+      accessibilityLiveRegion="polite">
+      {dots.map((dot, index) => (
+        <Animated.View
+          key={index}
+          style={[
+            styles.typingDot,
+            {
+              opacity: dot.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.35, 1],
+              }),
+              transform: [
+                {
+                  translateY: dot.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [0, -4],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 export default function ChatScreen() {
   const router = useRouter();
   const { session } = useAuth();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [persisting, setPersisting] = useState(false);
+  const [incognito, setIncognito] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  const [historyRevision, setHistoryRevision] = useState(0);
   const listRef = useRef<FlatList<Msg>>(null);
 
   // Open the history drawer on a rightward swipe from a dedicated strip on the
@@ -58,6 +130,7 @@ export default function ChatScreen() {
 
   // Load a past conversation from the drawer into the active screen.
   function loadChat(chat: Chat) {
+    if (sending || persisting) return;
     setMessages(
       chat.messages.map((m) => ({ id: nextId(), role: m.role, text: m.text })),
     );
@@ -66,30 +139,86 @@ export default function ChatScreen() {
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: false }));
   }
 
+  function startNewChat() {
+    if (sending || persisting) return;
+    setMessages([]);
+    setCurrentChatId(null);
+    setDraft('');
+    setDrawerOpen(false);
+  }
+
+  function toggleIncognito() {
+    if (sending || persisting) return;
+    setIncognito((enabled) => !enabled);
+    setMessages([]);
+    setCurrentChatId(null);
+    setDraft('');
+    setDrawerOpen(false);
+  }
+
+  function handleChatDeleted(chatId: string) {
+    if (chatId !== currentChatId) return;
+    setMessages([]);
+    setCurrentChatId(null);
+    setDraft('');
+    setDrawerOpen(false);
+  }
+
   async function send(text: string) {
     const body = text.trim();
-    if (!body || sending) return;
+    if (!body || sending || persisting) return;
+    const userMessage: Msg = { id: nextId(), role: 'user', text: body };
+    const messagesWithUser = [...messages, userMessage];
     setDraft('');
-    setMessages((prev) => [...prev, { id: nextId(), role: 'user', text: body }]);
+    setMessages(messagesWithUser);
     setSending(true);
 
     try {
-      const intent = await parseShoppingIntent(body);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: nextId(),
-          role: 'assistant',
-          text: `Got it — searching for ${intent.productQuery}. 🔍`,
-        },
-      ]);
+      const result = await sendChatMessage(body);
+      const assistantMessage: Msg = {
+        id: nextId(),
+        role: 'assistant',
+        text:
+          result.type === 'shopping_intent'
+            ? `Got it — searching for ${result.intent.productQuery}. 🔍`
+            : result.text,
+      };
+      const completedMessages = [...messagesWithUser, assistantMessage];
+
+      // Show the real response and remove the typing indicator before the
+      // transcript persistence round-trip.
+      setMessages(completedMessages);
+      setSending(false);
+
+      // Incognito transcripts remain exclusively in local React state.
+      if (incognito) return;
+
+      const storedMessages: StoredMessage[] = completedMessages.map(({ role, text }) => ({
+        role,
+        text,
+      }));
+      setPersisting(true);
+      try {
+        if (currentChatId) {
+          await updateChatMessages(currentChatId, storedMessages);
+        } else {
+          const title = body.length > 40 ? `${body.slice(0, 40)}…` : body;
+          const chat = await createChat(title, storedMessages);
+          setCurrentChatId(chat.id);
+        }
+        setHistoryRevision((revision) => revision + 1);
+      } catch (saveError) {
+        console.error('Chat persistence failed:', saveError);
+      } finally {
+        setPersisting(false);
+      }
     } catch (error) {
       const text =
         error instanceof GrokServiceError
           ? error.userMessage
-          : "I couldn't understand that shopping request right now. Please try again in a moment.";
+          : "I couldn't respond right now. Please try again in a moment.";
       setMessages((prev) => [...prev, { id: nextId(), role: 'assistant', text }]);
-      console.error('Shopping request failed:', error);
+      console.error('Chat request failed:', error);
     } finally {
       setSending(false);
       requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
@@ -97,13 +226,36 @@ export default function ChatScreen() {
   }
 
   const empty = messages.length === 0;
+  const busy = sending || persisting;
 
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       {/* Top bar */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, incognito && styles.topBarIncognito]}>
         <Logo size={36} />
-        <Text style={styles.greeting}>Hi, {greetingName(session)} 👋</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.greeting}>Hi, {greetingName(session)} 👋</Text>
+          {incognito ? <Text style={styles.incognitoLabel}>Incognito</Text> : null}
+        </View>
+        <Pressable
+          onPress={toggleIncognito}
+          disabled={busy}
+          hitSlop={8}
+          accessibilityRole="switch"
+          accessibilityLabel="Incognito mode"
+          accessibilityState={{ checked: incognito, disabled: busy }}
+          style={[styles.incognitoButton, incognito && styles.incognitoButtonActive]}>
+          <Text style={[styles.incognitoIcon, busy && styles.topBarActionDisabled]}>🕶</Text>
+        </Pressable>
+        <Pressable
+          onPress={startNewChat}
+          disabled={busy}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel="New chat"
+          accessibilityState={{ disabled: busy }}>
+          <Text style={[styles.newChat, busy && styles.topBarActionDisabled]}>＋</Text>
+        </Pressable>
         <Pressable
           onPress={() => router.push('/(app)/account')}
           hitSlop={8}
@@ -146,6 +298,7 @@ export default function ChatScreen() {
                 </Text>
               </View>
             )}
+            ListFooterComponent={sending ? <TypingIndicator /> : null}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
           />
         )}
@@ -156,15 +309,16 @@ export default function ChatScreen() {
             style={styles.input}
             value={draft}
             onChangeText={setDraft}
+            editable={!busy}
             placeholder="Ask FetchIt anything..."
             placeholderTextColor={Colors.placeholder}
             onSubmitEditing={() => send(draft)}
             returnKeyType="send"
           />
           <Pressable
-            style={[styles.sendBtn, (!draft.trim() || sending) && styles.sendBtnOff]}
+            style={[styles.sendBtn, (!draft.trim() || busy) && styles.sendBtnOff]}
             onPress={() => send(draft)}
-            disabled={!draft.trim() || sending}>
+            disabled={!draft.trim() || busy}>
             <Text style={styles.sendText}>↑</Text>
           </Pressable>
         </View>
@@ -183,6 +337,9 @@ export default function ChatScreen() {
         onClose={() => setDrawerOpen(false)}
         onSelectChat={loadChat}
         currentChatId={currentChatId}
+        refreshKey={historyRevision}
+        onChatDeleted={handleChatDeleted}
+        actionsDisabled={busy}
       />
     </SafeAreaView>
   );
@@ -202,7 +359,31 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  greeting: { flex: 1, color: Colors.text, fontSize: FontSize.md, fontWeight: '700' },
+  topBarIncognito: { backgroundColor: Colors.incognito },
+  headerCopy: { flex: 1 },
+  greeting: { color: Colors.text, fontSize: FontSize.md, fontWeight: '700' },
+  incognitoLabel: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  incognitoButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  incognitoButtonActive: {
+    backgroundColor: Colors.surfaceAlt,
+    borderColor: Colors.textMuted,
+  },
+  incognitoIcon: { fontSize: FontSize.lg },
+  newChat: { color: Colors.yellow, fontSize: 28, lineHeight: 30 },
+  topBarActionDisabled: { opacity: 0.4 },
   menu: { color: Colors.yellow, fontSize: 26 },
   emptyState: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: Spacing.md, padding: Spacing.lg },
   emptyEmoji: { fontSize: 56 },
@@ -221,6 +402,19 @@ const styles = StyleSheet.create({
   bubble: { maxWidth: '85%', borderRadius: Radius.lg, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md },
   userBubble: { alignSelf: 'flex-end', backgroundColor: Colors.yellow },
   aiBubble: { alignSelf: 'flex-start', backgroundColor: Colors.surfaceAlt },
+  typingBubble: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    minHeight: 38,
+    marginTop: Spacing.sm,
+  },
+  typingDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: Colors.textMuted,
+  },
   userText: { color: Colors.charcoal, fontSize: FontSize.md },
   aiText: { color: Colors.text, fontSize: FontSize.md },
   inputBar: {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   Modal,
@@ -13,7 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { getChats, type Chat } from '@/lib/chats';
+import { deleteChat, getChats, type Chat } from '@/lib/chats';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 const SCREEN_W = Dimensions.get('window').width;
@@ -42,16 +43,24 @@ export function ChatHistoryDrawer({
   onClose,
   onSelectChat,
   currentChatId,
+  refreshKey,
+  onChatDeleted,
+  actionsDisabled = false,
 }: {
   open: boolean;
   onClose: () => void;
   onSelectChat: (chat: Chat) => void;
   currentChatId?: string | null;
+  refreshKey?: number;
+  onChatDeleted: (chatId: string) => void;
+  actionsDisabled?: boolean;
 }) {
   const translateX = useRef(new Animated.Value(-DRAWER_W)).current;
   const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [chats, setChats] = useState<Chat[]>([]);
+  const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
+  const lastRefreshKey = useRef(refreshKey);
 
   // Scrim darkens as the panel slides in from the left (closed -DRAWER_W → 0,
   // open 0 → 0.55).
@@ -71,22 +80,63 @@ export function ChatHistoryDrawer({
     });
   }
 
-  // Drive mount + slide from the `open` prop, and (re)load history on each open.
+  // Drive mount + slide from the `open` prop.
   useEffect(() => {
     if (open) {
       setMounted(true);
       translateX.setValue(-DRAWER_W);
       requestAnimationFrame(() => animateTo(0));
-      setLoading(true);
-      getChats().then((rows) => {
-        setChats(rows);
-        setLoading(false);
-      });
     } else if (mounted) {
       animateTo(-DRAWER_W, () => setMounted(false));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // Reload on open and whenever the active screen successfully persists a chat.
+  useEffect(() => {
+    const refreshRequested = refreshKey !== lastRefreshKey.current;
+    lastRefreshKey.current = refreshKey;
+    if (!open && !refreshRequested) return;
+    let active = true;
+    if (open) setLoading(true);
+    getChats().then((rows) => {
+      if (!active) return;
+      setChats(rows);
+      setLoading(false);
+    });
+    return () => {
+      active = false;
+    };
+  }, [open, refreshKey]);
+
+  function confirmDelete(chat: Chat) {
+    if (actionsDisabled || deletingChatId) return;
+    Alert.alert(
+      'Delete chat?',
+      `“${chat.title || 'Untitled chat'}” will be permanently deleted.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeletingChatId(chat.id);
+            try {
+              await deleteChat(chat.id);
+              setChats((current) => current.filter((item) => item.id !== chat.id));
+              onChatDeleted(chat.id);
+              const refreshed = await getChats();
+              setChats(refreshed);
+            } catch {
+              Alert.alert('Could not delete chat', 'Please try again in a moment.');
+            } finally {
+              setDeletingChatId(null);
+            }
+          },
+        },
+      ],
+    );
+  }
 
   // Swipe-left on the panel to close; follow the finger, then settle.
   const pan = useRef(
@@ -151,18 +201,37 @@ export function ChatHistoryDrawer({
               showsVerticalScrollIndicator={false}>
               {chats.map((c) => {
                 const active = c.id === currentChatId;
+                const deleting = c.id === deletingChatId;
                 return (
-                  <Pressable
+                  <View
                     key={c.id}
-                    style={[styles.item, active && styles.itemActive]}
-                    onPress={() => onSelectChat(c)}>
-                    <Text
-                      style={[styles.itemTitle, active && styles.itemTitleActive]}
-                      numberOfLines={1}>
-                      {c.title || 'Untitled chat'}
-                    </Text>
-                    <Text style={styles.itemDate}>{formatDate(c.createdAt)}</Text>
-                  </Pressable>
+                    style={[styles.item, active && styles.itemActive]}>
+                    <Pressable
+                      style={styles.itemMain}
+                      disabled={actionsDisabled || deleting}
+                      onPress={() => onSelectChat(c)}>
+                      <Text
+                        style={[styles.itemTitle, active && styles.itemTitleActive]}
+                        numberOfLines={1}>
+                        {c.title || 'Untitled chat'}
+                      </Text>
+                      <Text style={styles.itemDate}>{formatDate(c.createdAt)}</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.deleteButton}
+                      disabled={actionsDisabled || deletingChatId !== null}
+                      onPress={() => confirmDelete(c)}
+                      hitSlop={6}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Delete ${c.title || 'untitled chat'}`}
+                      accessibilityState={{ disabled: actionsDisabled || deletingChatId !== null }}>
+                      {deleting ? (
+                        <ActivityIndicator size="small" color={Colors.error} />
+                      ) : (
+                        <Text style={styles.deleteIcon}>🗑</Text>
+                      )}
+                    </Pressable>
+                  </View>
                 );
               })}
             </ScrollView>
@@ -202,14 +271,26 @@ const styles = StyleSheet.create({
   emptyText: { color: Colors.textFaint, fontSize: FontSize.sm, textAlign: 'center' },
   list: { padding: Spacing.md, gap: Spacing.sm },
   item: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: Colors.surface,
     borderRadius: Radius.md,
     borderWidth: 1,
     borderColor: Colors.border,
+  },
+  itemMain: {
+    flex: 1,
     paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.md,
+    paddingLeft: Spacing.md,
     gap: 2,
   },
+  deleteButton: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: Spacing.md,
+  },
+  deleteIcon: { fontSize: FontSize.lg },
   itemActive: { borderColor: Colors.yellow },
   itemTitle: { color: Colors.text, fontSize: FontSize.md, fontWeight: '600' },
   itemTitleActive: { color: Colors.yellow },

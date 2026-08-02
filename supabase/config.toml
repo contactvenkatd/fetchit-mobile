@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.auth-gateway]
 verify_jwt = false
+
+[functions.parse-shopping-intent]
+verify_jwt = true
