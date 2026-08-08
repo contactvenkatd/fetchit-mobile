@@ -34,6 +34,7 @@ import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 const EMPTY_ADDRESS = {
   fullName: '',
+  phoneNumber: '',
   addressLine1: '',
   addressLine2: '',
   city: '',
@@ -43,6 +44,10 @@ const EMPTY_ADDRESS = {
 };
 
 type AddressForm = typeof EMPTY_ADDRESS;
+const isPlausiblePhone = (value: string) => {
+  const digits = value.replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 15;
+};
 type SavedCard = {
   brand: string | null;
   last4: string | null;
@@ -73,6 +78,7 @@ export default function CardsAddressScreen() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [address, setAddress] = useState<AddressForm>(EMPTY_ADDRESS);
   const [savingAddress, setSavingAddress] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
 
   // Saved card + the "update card" sub-form.
   const [card, setCard] = useState<SavedCard | null>(null);
@@ -120,6 +126,7 @@ export default function CardsAddressScreen() {
       if (p) {
         setAddress({
           fullName: p.fullName,
+          phoneNumber: p.phoneNumber,
           addressLine1: p.addressLine1,
           addressLine2: p.addressLine2,
           city: p.city,
@@ -139,11 +146,22 @@ export default function CardsAddressScreen() {
   const setField = (key: keyof AddressForm) => (value: string) =>
     setAddress((a) => ({ ...a, [key]: value }));
 
+  const setPhoneNumber = (value: string) => {
+    setAddress((a) => ({ ...a, phoneNumber: value }));
+    if (phoneError) setPhoneError('');
+  };
+
   async function handleSaveAddress() {
+    if (!isPlausiblePhone(address.phoneNumber)) {
+      setPhoneError('Enter a valid phone number with 7–15 digits.');
+      return;
+    }
+    setPhoneError('');
     setSavingAddress(true);
     const { error } = await saveProfile(
       {
         fullName: address.fullName.trim(),
+        phoneNumber: address.phoneNumber.trim(),
         addressLine1: address.addressLine1.trim(),
         addressLine2: address.addressLine2.trim(),
         city: address.city.trim(),
@@ -307,6 +325,16 @@ export default function CardsAddressScreen() {
             onChangeText={setField('fullName')}
             autoComplete="name"
             textContentType="name"
+          />
+          <TextField
+            label="Phone number"
+            value={address.phoneNumber}
+            onChangeText={setPhoneNumber}
+            placeholder="(555) 123-4567"
+            keyboardType="phone-pad"
+            autoComplete="tel"
+            textContentType="telephoneNumber"
+            error={phoneError}
           />
           <TextField
             label="Address line 1"

@@ -37,6 +37,7 @@ type Msg = {
   role: 'user' | 'assistant';
   text: string;
   products?: ProductResult[];
+  quantity?: number;
 };
 
 const SUGGESTIONS = [
@@ -210,6 +211,7 @@ export default function ChatScreen() {
               ? `I found ${products.length} option${products.length === 1 ? '' : 's'}:`
               : "I couldn't find any matching products. Try broadening your search.",
             products,
+            quantity: result.intent.quantity,
           });
           setMessages([...completedMessages]);
         } catch (searchError) {
@@ -329,18 +331,39 @@ export default function ChatScreen() {
                 style={[
                   styles.bubble,
                   item.role === 'user' ? styles.userBubble : styles.aiBubble,
+                  item.products && styles.productResultsBubble,
                 ]}>
                 <Text
                   style={item.role === 'user' ? styles.userText : styles.aiText}>
                   {item.text}
                 </Text>
                 {item.products?.map((product) => (
-                  <View key={product.productId} style={styles.productCard}>
+                  <Pressable
+                    key={product.productId}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${product.title}, ${product.retailer}`}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/(app)/checkout-confirmation',
+                        params: {
+                          productUrl: product.url,
+                          title: product.title,
+                          image: product.image ?? '',
+                          retailer: product.retailer,
+                          priceCents: product.price?.toString() ?? '',
+                          quantity: (item.quantity ?? 1).toString(),
+                        },
+                      })
+                    }
+                    style={({ pressed }) => [
+                      styles.productCard,
+                      pressed && styles.productCardPressed,
+                    ]}>
                     {product.image ? (
                       <Image
                         source={product.image}
                         style={styles.productImage}
-                        contentFit="cover"
+                        contentFit="contain"
                         accessibilityLabel={product.title}
                       />
                     ) : (
@@ -353,13 +376,18 @@ export default function ChatScreen() {
                         {product.title}
                       </Text>
                       <Text style={styles.productRetailer}>{product.retailer}</Text>
-                      <Text style={styles.productPrice}>
-                        {product.price === null
-                          ? 'Price unavailable'
-                          : `$${(product.price / 100).toFixed(2)}`}
-                      </Text>
+                      <View style={styles.productFooter}>
+                        <Text style={styles.productPrice}>
+                          {product.price === null
+                            ? 'Price unavailable'
+                            : `$${(product.price / 100).toFixed(2)}`}
+                        </Text>
+                        <Text style={styles.productDisclosure} aria-hidden>
+                          ›
+                        </Text>
+                      </View>
                     </View>
-                  </View>
+                  </Pressable>
                 ))}
               </View>
             )}
@@ -482,32 +510,64 @@ const styles = StyleSheet.create({
   },
   userText: { color: Colors.charcoal, fontSize: FontSize.md },
   aiText: { color: Colors.text, fontSize: FontSize.md },
+  productResultsBubble: {
+    alignSelf: 'stretch',
+    maxWidth: '100%',
+    width: '100%',
+  },
   productCard: {
     flexDirection: 'row',
-    gap: Spacing.sm,
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    gap: Spacing.md,
     marginTop: Spacing.sm,
-    padding: Spacing.sm,
+    padding: Spacing.md,
     borderRadius: Radius.md,
     backgroundColor: Colors.surface,
     borderWidth: 1,
     borderColor: Colors.border,
   },
-  productImage: { width: 76, height: 76, borderRadius: Radius.sm },
+  productCardPressed: { opacity: 0.78, borderColor: Colors.borderFocus },
+  productImage: {
+    width: 88,
+    height: 88,
+    flexShrink: 0,
+    borderRadius: Radius.sm,
+    backgroundColor: Colors.surfaceAlt,
+  },
   productImagePlaceholder: {
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: Colors.surfaceAlt,
   },
   productImagePlaceholderText: { fontSize: 28 },
-  productCopy: { flex: 1, justifyContent: 'center' },
-  productTitle: { color: Colors.text, fontSize: FontSize.sm, fontWeight: '700' },
+  productCopy: { flex: 1, minWidth: 0, alignSelf: 'stretch' },
+  productTitle: {
+    color: Colors.text,
+    fontSize: FontSize.md,
+    fontWeight: '700',
+    lineHeight: 21,
+  },
   productRetailer: {
     color: Colors.textMuted,
     fontSize: FontSize.xs,
-    marginTop: 2,
+    marginTop: Spacing.xs,
     textTransform: 'capitalize',
   },
-  productPrice: { color: Colors.yellow, fontSize: FontSize.md, fontWeight: '800', marginTop: 3 },
+  productFooter: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginTop: 'auto',
+    paddingTop: Spacing.sm,
+  },
+  productPrice: { color: Colors.yellow, fontSize: FontSize.lg, fontWeight: '800' },
+  productDisclosure: {
+    color: Colors.textFaint,
+    fontSize: FontSize.xl,
+    lineHeight: FontSize.xl,
+    marginLeft: Spacing.sm,
+  },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',

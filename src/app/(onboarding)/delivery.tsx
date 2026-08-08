@@ -34,6 +34,7 @@ import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 const EMPTY_ADDRESS = {
   fullName: '',
+  phoneNumber: '',
   addressLine1: '',
   addressLine2: '',
   city: '',
@@ -43,6 +44,11 @@ const EMPTY_ADDRESS = {
 };
 
 type AddressForm = typeof EMPTY_ADDRESS;
+
+const isPlausiblePhone = (value: string) => {
+  const digits = value.replace(/\D/g, '');
+  return digits.length >= 7 && digits.length <= 15;
+};
 
 export default function DeliveryScreen() {
   const router = useRouter();
@@ -61,6 +67,7 @@ export default function DeliveryScreen() {
   // Shipping address.
   const [address, setAddress] = useState<AddressForm>(EMPTY_ADDRESS);
   const [savingAddress, setSavingAddress] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
 
   // Payment card.
   const [cardComplete, setCardComplete] = useState(false);
@@ -97,9 +104,24 @@ export default function DeliveryScreen() {
   const setField = (key: keyof AddressForm) => (value: string) =>
     setAddress((a) => ({ ...a, [key]: value }));
 
+  const setPhoneNumber = (value: string) => {
+    setAddress((a) => ({ ...a, phoneNumber: value }));
+    if (phoneError) setPhoneError('');
+  };
+
+  const validatePhone = () => {
+    if (!isPlausiblePhone(address.phoneNumber)) {
+      setPhoneError('Enter a valid phone number with 7–15 digits.');
+      return false;
+    }
+    setPhoneError('');
+    return true;
+  };
+
   // The trimmed address fields written to the profile on every save.
   const addressFields = () => ({
     fullName: address.fullName.trim(),
+    phoneNumber: address.phoneNumber.trim(),
     addressLine1: address.addressLine1.trim(),
     addressLine2: address.addressLine2.trim(),
     city: address.city.trim(),
@@ -109,6 +131,7 @@ export default function DeliveryScreen() {
   });
 
   async function handleSaveAddress() {
+    if (!validatePhone()) return;
     setSavingAddress(true);
     const { error: saveErr } = await saveProfile(addressFields(), new Date().toISOString());
     setSavingAddress(false);
@@ -124,6 +147,7 @@ export default function DeliveryScreen() {
   }) {
     await saveProfile(
       {
+        ...addressFields(),
         stripeCustomerId: customerId,
         stripePaymentMethodId: paymentMethodId,
         cardBrand: card.brand ?? null,
@@ -137,6 +161,7 @@ export default function DeliveryScreen() {
 
   async function handleContinue() {
     setError('');
+    if (!validatePhone()) return;
     if (!cardComplete) {
       setError('Please enter your full card details.');
       return;
@@ -211,6 +236,7 @@ export default function DeliveryScreen() {
       paymentMethodData: {
         billingDetails: {
           name: address.fullName.trim() || undefined,
+          phone: address.phoneNumber.trim(),
           address: {
             line1: address.addressLine1.trim() || undefined,
             line2: address.addressLine2.trim() || undefined,
@@ -248,6 +274,7 @@ export default function DeliveryScreen() {
 
   async function handleApplePay() {
     setError('');
+    if (!validatePhone()) return;
     setSavingCard(true);
 
     const attestation = await attest('checkout');
@@ -355,6 +382,7 @@ export default function DeliveryScreen() {
 
   // Free plan only — skip the card and just keep the address.
   async function handleSkip() {
+    if (!validatePhone()) return;
     setSavingCard(true);
     await saveProfile(addressFields(), new Date().toISOString());
     setSavingCard(false);
@@ -383,6 +411,16 @@ export default function DeliveryScreen() {
             onChangeText={setField('fullName')}
             autoComplete="name"
             textContentType="name"
+          />
+          <TextField
+            label="Phone number"
+            value={address.phoneNumber}
+            onChangeText={setPhoneNumber}
+            placeholder="(555) 123-4567"
+            keyboardType="phone-pad"
+            autoComplete="tel"
+            textContentType="telephoneNumber"
+            error={phoneError}
           />
           <TextField
             label="Address line 1"

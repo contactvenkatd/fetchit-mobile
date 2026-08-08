@@ -30,6 +30,10 @@ export default function AppLayout() {
       }}>
       <Stack.Screen name="chat" options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen
+        name="checkout-confirmation"
+        options={{ title: 'Confirm Purchase', headerShown: true, headerBackVisible: true }}
+      />
+      <Stack.Screen
         name="account"
         options={{ title: 'Account Settings', headerShown: true, headerBackVisible: true }}
       />

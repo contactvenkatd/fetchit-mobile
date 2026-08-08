@@ -100,6 +100,7 @@ export type Profile = {
   state: string;
   zip: string;
   country: string;
+  phoneNumber: string;
   stripeCustomerId: string | null;
   stripePaymentMethodId: string | null;
   cardBrand: string | null;
@@ -122,6 +123,7 @@ function mapProfile(row: Record<string, unknown> | null): Profile | null {
     state: str(row.state),
     zip: str(row.zip),
     country: str(row.country) || 'United States',
+    phoneNumber: str(row.phone_number),
     stripeCustomerId: orNull(row.stripe_customer_id),
     stripePaymentMethodId: orNull(row.stripe_payment_method_id),
     cardBrand: orNull(row.card_brand),
@@ -151,6 +153,7 @@ const PROFILE_COLUMNS: Record<string, string> = {
   state: 'state',
   zip: 'zip',
   country: 'country',
+  phoneNumber: 'phone_number',
   stripeCustomerId: 'stripe_customer_id',
   stripePaymentMethodId: 'stripe_payment_method_id',
   cardBrand: 'card_brand',

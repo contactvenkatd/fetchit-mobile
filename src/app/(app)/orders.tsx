@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
@@ -37,6 +38,11 @@ function formatDate(iso: string | null): string {
 const STATUS: Record<string, { color: string; label: string }> = {
   pending: { color: Colors.textMuted, label: 'Pending' },
   processing: { color: Colors.planPlus, label: 'Processing' },
+  in_progress: { color: Colors.planPlus, label: 'In progress' },
+  order_placed: { color: Colors.success, label: 'Order placed' },
+  order_failed: { color: Colors.error, label: 'Order failed' },
+  cancelled: { color: Colors.error, label: 'Cancelled' },
+  cancelled_by_retailer: { color: Colors.error, label: 'Cancelled by retailer' },
   completed: { color: Colors.success, label: 'Completed' },
   failed: { color: Colors.error, label: 'Failed' },
 };
@@ -173,7 +179,11 @@ export default function OrdersAnalyticsScreen() {
               return (
                 <View key={o.id} style={styles.card}>
                   <View style={styles.thumb}>
-                    <Text style={styles.thumbText}>{o.productImage || '🛍️'}</Text>
+                    {o.productImage ? (
+                      <Image source={o.productImage} style={styles.thumbImage} contentFit="contain" />
+                    ) : (
+                      <Text style={styles.thumbText}>🛍️</Text>
+                    )}
                   </View>
                   <View style={styles.cardBody}>
                     <View style={styles.cardTop}>
@@ -313,6 +323,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   thumbText: { fontSize: 26 },
+  thumbImage: { width: '100%', height: '100%', borderRadius: Radius.md },
   cardBody: { flex: 1, gap: Spacing.xs },
   cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
   name: { flex: 1, color: Colors.text, fontSize: FontSize.md, fontWeight: '700' },
