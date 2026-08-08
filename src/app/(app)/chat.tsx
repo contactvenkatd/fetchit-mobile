@@ -1,4 +1,5 @@
 import { useRouter } from 'expo-router';
+import { Image } from 'expo-image';
 import { useEffect, useRef, useState } from 'react';
 import {
   Animated,
@@ -24,9 +25,19 @@ import {
   type StoredMessage,
 } from '@/lib/chats';
 import { GrokServiceError, sendChatMessage } from '@/services/grokService';
+import {
+  searchProducts,
+  type ProductResult,
+  ZincServiceError,
+} from '@/services/zincService';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
-type Msg = { id: string; role: 'user' | 'assistant'; text: string };
+type Msg = {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  products?: ProductResult[];
+};
 
 const SUGGESTIONS = [
   'A gift for my mom, around $50',
@@ -188,6 +199,33 @@ export default function ChatScreen() {
       // Show the real response and remove the typing indicator before the
       // transcript persistence round-trip.
       setMessages(completedMessages);
+
+      if (result.type === 'shopping_intent') {
+        try {
+          const products = await searchProducts(result.intent);
+          completedMessages.push({
+            id: nextId(),
+            role: 'assistant',
+            text: products.length
+              ? `I found ${products.length} option${products.length === 1 ? '' : 's'}:`
+              : "I couldn't find any matching products. Try broadening your search.",
+            products,
+          });
+          setMessages([...completedMessages]);
+        } catch (searchError) {
+          completedMessages.push({
+            id: nextId(),
+            role: 'assistant',
+            text:
+              searchError instanceof ZincServiceError
+                ? searchError.userMessage
+                : "I couldn't search for products right now. Please try again in a moment.",
+          });
+          setMessages([...completedMessages]);
+          console.error('Product search failed:', searchError);
+        }
+      }
+
       setSending(false);
 
       // Incognito transcripts remain exclusively in local React state.
@@ -296,6 +334,33 @@ export default function ChatScreen() {
                   style={item.role === 'user' ? styles.userText : styles.aiText}>
                   {item.text}
                 </Text>
+                {item.products?.map((product) => (
+                  <View key={product.productId} style={styles.productCard}>
+                    {product.image ? (
+                      <Image
+                        source={product.image}
+                        style={styles.productImage}
+                        contentFit="cover"
+                        accessibilityLabel={product.title}
+                      />
+                    ) : (
+                      <View style={[styles.productImage, styles.productImagePlaceholder]}>
+                        <Text style={styles.productImagePlaceholderText}>🛍️</Text>
+                      </View>
+                    )}
+                    <View style={styles.productCopy}>
+                      <Text style={styles.productTitle} numberOfLines={3}>
+                        {product.title}
+                      </Text>
+                      <Text style={styles.productRetailer}>{product.retailer}</Text>
+                      <Text style={styles.productPrice}>
+                        {product.price === null
+                          ? 'Price unavailable'
+                          : `$${(product.price / 100).toFixed(2)}`}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
               </View>
             )}
             ListFooterComponent={sending ? <TypingIndicator /> : null}
@@ -417,6 +482,32 @@ const styles = StyleSheet.create({
   },
   userText: { color: Colors.charcoal, fontSize: FontSize.md },
   aiText: { color: Colors.text, fontSize: FontSize.md },
+  productCard: {
+    flexDirection: 'row',
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+    padding: Spacing.sm,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.surface,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  productImage: { width: 76, height: 76, borderRadius: Radius.sm },
+  productImagePlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.surfaceAlt,
+  },
+  productImagePlaceholderText: { fontSize: 28 },
+  productCopy: { flex: 1, justifyContent: 'center' },
+  productTitle: { color: Colors.text, fontSize: FontSize.sm, fontWeight: '700' },
+  productRetailer: {
+    color: Colors.textMuted,
+    fontSize: FontSize.xs,
+    marginTop: 2,
+    textTransform: 'capitalize',
+  },
+  productPrice: { color: Colors.yellow, fontSize: FontSize.md, fontWeight: '800', marginTop: 3 },
   inputBar: {
     flexDirection: 'row',
     alignItems: 'center',
