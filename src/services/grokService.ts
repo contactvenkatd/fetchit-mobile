@@ -101,3 +101,27 @@ export async function sendChatMessage(
     });
   }
 }
+
+export async function getZeroResultsSuggestion(
+  productQuery: string,
+  history: ChatHistoryMessage[],
+): Promise<string> {
+  const query = productQuery.trim();
+  if (!query) throw new GrokServiceError('A product query is required.');
+
+  try {
+    const { data, error } = await supabase.functions.invoke('parse-shopping-intent', {
+      body: { message: query, history, searchFailure: true },
+    });
+    if (error) throw error;
+    if (!isGrokResult(data) || data.type !== 'message') {
+      throw new Error('Edge Function returned a malformed zero-results suggestion.');
+    }
+    return data.text.trim();
+  } catch (error) {
+    if (error instanceof GrokServiceError) throw error;
+    throw new GrokServiceError('Grok zero-results suggestion request failed.', {
+      cause: error,
+    });
+  }
+}

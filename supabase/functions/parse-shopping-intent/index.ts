@@ -73,7 +73,11 @@ const shoppingIntentTool = {
       properties: {
         productQuery: {
           type: "string",
-          description: "Product name or concise search phrase.",
+          description:
+            "A specific, searchable product name or category — not a task description. " +
+            "Convert 'restock my X' to 'X', and 'get me something for Y' to a concrete " +
+            "product name for Y (for example, 'get me something for dinner' becomes " +
+            "'frozen dinner meals', not 'dinner recipes').",
         },
         size: {
           type: ["string", "null"],
@@ -129,7 +133,7 @@ Deno.serve(async (req) => {
     return failure("method_not_allowed", "Only POST requests are supported.", 405);
   }
 
-  let body: { message?: unknown; history?: unknown };
+  let body: { message?: unknown; history?: unknown; searchFailure?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -146,6 +150,10 @@ Deno.serve(async (req) => {
   const history = parseHistory(body.history);
   if (!history) {
     return failure("invalid_history", "Conversation history is malformed or too long.", 400);
+  }
+  const searchFailure = body.searchFailure === true;
+  if (body.searchFailure !== undefined && !searchFailure) {
+    return failure("invalid_search_failure", "Search failure must be true when provided.", 400);
   }
 
   const apiKey = Deno.env.get("XAI_API_KEY")?.trim();
@@ -165,19 +173,30 @@ Deno.serve(async (req) => {
         messages: [
           {
             role: "system",
-            content:
-              "You are FetchIt, a helpful assistant that can answer general questions and also " +
-              "help find and buy products. If the user is explicitly asking to find, search for, " +
-              "or buy a product, call search_products with the extracted details. Otherwise, " +
-              "including when they ask for general advice or recommendations, respond naturally " +
-              "and conversationally. Extract only explicit shopping constraints and use null when " +
-              "a shopping constraint is unspecified.",
+            content: searchFailure
+              ? "You are FetchIt. A product search returned zero results. Briefly acknowledge that " +
+                "nothing came up, then suggest one or two concrete, searchable alternative product " +
+                "terms based on the conversation. Ask whether the user wants to try one. Do not " +
+                "claim you found products and do not ask what they were searching for."
+              : "You are FetchIt, a helpful assistant that can answer general questions and also " +
+                "help find and buy products. If the user is explicitly asking to find, search for, " +
+                "or buy a product, call search_products with the extracted details. Otherwise, " +
+                "including when they ask for general advice or recommendations, respond naturally " +
+                "and conversationally. Extract only explicit shopping constraints and use null when " +
+                "a shopping constraint is unspecified. Always normalize productQuery to a concise, " +
+                "concrete product name or category rather than a task or conversational phrase.",
           },
           ...history,
-          { role: "user", content: message },
+          {
+            role: "user",
+            content: searchFailure
+              ? `The product search for "${message}" returned zero results.`
+              : message,
+          },
         ],
-        tools: [shoppingIntentTool],
-        parallel_tool_calls: false,
+        ...(searchFailure
+          ? {}
+          : { tools: [shoppingIntentTool], parallel_tool_calls: false }),
         temperature: 0,
       }),
     });

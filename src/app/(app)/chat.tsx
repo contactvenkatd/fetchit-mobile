@@ -26,6 +26,7 @@ import {
 } from '@/lib/chats';
 import {
   buildChatHistory,
+  getZeroResultsSuggestion,
   GrokServiceError,
   sendChatMessage,
 } from '@/services/grokService';
@@ -214,6 +215,18 @@ export default function ChatScreen() {
       if (result.type === 'shopping_intent') {
         try {
           const products = await searchProducts(result.intent);
+          let zeroResultsText: string | undefined;
+          if (products.length === 0) {
+            try {
+              zeroResultsText = await getZeroResultsSuggestion(
+                result.intent.productQuery,
+                buildChatHistory(completedMessages),
+              );
+            } catch (suggestionError) {
+              zeroResultsText = `Hmm, nothing came up for “${result.intent.productQuery}.” Want to try a broader or more specific product name?`;
+              console.error('Zero-results suggestion failed:', suggestionError);
+            }
+          }
           const productSummary = products.length
             ? `Products shown for ${result.intent.productQuery}: ${products
                 .map((product, index) => {
@@ -228,7 +241,8 @@ export default function ChatScreen() {
             role: 'assistant',
             text: products.length
               ? `I found ${products.length} option${products.length === 1 ? '' : 's'}:`
-              : "I couldn't find any matching products. Try broadening your search.",
+              : zeroResultsText ??
+                `Hmm, nothing came up for “${result.intent.productQuery}.” Want to try a broader or more specific product name?`,
             products,
             quantity: result.intent.quantity,
             contextText: productSummary,
