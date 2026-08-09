@@ -13,6 +13,14 @@ export type GrokResult =
   | { type: 'shopping_intent'; intent: ShoppingIntent }
   | { type: 'message'; text: string };
 
+export type ChatHistoryMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
+const MAX_HISTORY_MESSAGES = 40;
+const MAX_HISTORY_CHARACTERS = 12_000;
+
 export class GrokServiceError extends Error {
   readonly userMessage =
     "I couldn't respond right now. Please try again in a moment.";
@@ -49,13 +57,35 @@ function isGrokResult(value: unknown): value is GrokResult {
   return false;
 }
 
-export async function sendChatMessage(message: string): Promise<GrokResult> {
+export function buildChatHistory(
+  messages: Array<{ role: 'user' | 'assistant'; text: string; contextText?: string }>,
+): ChatHistoryMessage[] {
+  const history: ChatHistoryMessage[] = [];
+  let characters = 0;
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (history.length >= MAX_HISTORY_MESSAGES) break;
+    const message = messages[index];
+    const content = (message.contextText ?? message.text).trim();
+    if (!content) continue;
+    if (characters + content.length > MAX_HISTORY_CHARACTERS) break;
+    history.push({ role: message.role, content });
+    characters += content.length;
+  }
+
+  return history.reverse();
+}
+
+export async function sendChatMessage(
+  message: string,
+  history: ChatHistoryMessage[] = [],
+): Promise<GrokResult> {
   const input = message.trim();
   if (!input) throw new GrokServiceError('A message is required.');
 
   try {
     const { data, error } = await supabase.functions.invoke('parse-shopping-intent', {
-      body: { message: input },
+      body: { message: input, history },
     });
     if (error) throw error;
     if (!isGrokResult(data)) throw new Error('Edge Function returned a malformed chat response.');

@@ -38,6 +38,31 @@ type GrokResponse = {
   error?: { message?: string };
 };
 
+type HistoryMessage = { role: "user" | "assistant"; content: string };
+
+const MAX_HISTORY_MESSAGES = 40;
+const MAX_HISTORY_CHARACTERS = 12_000;
+
+function parseHistory(value: unknown): HistoryMessage[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > MAX_HISTORY_MESSAGES) return null;
+
+  let characters = 0;
+  const history: HistoryMessage[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object") return null;
+    const candidate = entry as Record<string, unknown>;
+    if (candidate.role !== "user" && candidate.role !== "assistant") return null;
+    if (typeof candidate.content !== "string") return null;
+    const content = candidate.content.trim();
+    if (!content || content.length > 2000) return null;
+    characters += content.length;
+    if (characters > MAX_HISTORY_CHARACTERS) return null;
+    history.push({ role: candidate.role, content });
+  }
+  return history;
+}
+
 const shoppingIntentTool = {
   type: "function",
   function: {
@@ -104,7 +129,7 @@ Deno.serve(async (req) => {
     return failure("method_not_allowed", "Only POST requests are supported.", 405);
   }
 
-  let body: { message?: unknown };
+  let body: { message?: unknown; history?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -117,6 +142,10 @@ Deno.serve(async (req) => {
   }
   if (message.length > 2000) {
     return failure("message_too_long", "The shopping request is too long.", 400);
+  }
+  const history = parseHistory(body.history);
+  if (!history) {
+    return failure("invalid_history", "Conversation history is malformed or too long.", 400);
   }
 
   const apiKey = Deno.env.get("XAI_API_KEY")?.trim();
@@ -144,6 +173,7 @@ Deno.serve(async (req) => {
               "and conversationally. Extract only explicit shopping constraints and use null when " +
               "a shopping constraint is unspecified.",
           },
+          ...history,
           { role: "user", content: message },
         ],
         tools: [shoppingIntentTool],

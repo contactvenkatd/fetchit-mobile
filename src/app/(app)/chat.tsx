@@ -24,7 +24,11 @@ import {
   type Chat,
   type StoredMessage,
 } from '@/lib/chats';
-import { GrokServiceError, sendChatMessage } from '@/services/grokService';
+import {
+  buildChatHistory,
+  GrokServiceError,
+  sendChatMessage,
+} from '@/services/grokService';
 import {
   searchProducts,
   type ProductResult,
@@ -38,6 +42,7 @@ type Msg = {
   text: string;
   products?: ProductResult[];
   quantity?: number;
+  contextText?: string;
 };
 
 const SUGGESTIONS = [
@@ -144,7 +149,12 @@ export default function ChatScreen() {
   function loadChat(chat: Chat) {
     if (sending || persisting) return;
     setMessages(
-      chat.messages.map((m) => ({ id: nextId(), role: m.role, text: m.text })),
+      chat.messages.map((m) => ({
+        id: nextId(),
+        role: m.role,
+        text: m.text,
+        contextText: m.contextText,
+      })),
     );
     setCurrentChatId(chat.id);
     setDrawerOpen(false);
@@ -186,7 +196,7 @@ export default function ChatScreen() {
     setSending(true);
 
     try {
-      const result = await sendChatMessage(body);
+      const result = await sendChatMessage(body, buildChatHistory(messages));
       const assistantMessage: Msg = {
         id: nextId(),
         role: 'assistant',
@@ -204,6 +214,15 @@ export default function ChatScreen() {
       if (result.type === 'shopping_intent') {
         try {
           const products = await searchProducts(result.intent);
+          const productSummary = products.length
+            ? `Products shown for ${result.intent.productQuery}: ${products
+                .map((product, index) => {
+                  const price =
+                    product.price === null ? 'price unavailable' : `$${(product.price / 100).toFixed(2)}`;
+                  return `${index + 1}) ${product.title} - ${price} (${product.retailer})`;
+                })
+                .join(', ')}`
+            : undefined;
           completedMessages.push({
             id: nextId(),
             role: 'assistant',
@@ -212,6 +231,7 @@ export default function ChatScreen() {
               : "I couldn't find any matching products. Try broadening your search.",
             products,
             quantity: result.intent.quantity,
+            contextText: productSummary,
           });
           setMessages([...completedMessages]);
         } catch (searchError) {
@@ -233,10 +253,9 @@ export default function ChatScreen() {
       // Incognito transcripts remain exclusively in local React state.
       if (incognito) return;
 
-      const storedMessages: StoredMessage[] = completedMessages.map(({ role, text }) => ({
-        role,
-        text,
-      }));
+      const storedMessages: StoredMessage[] = completedMessages.map(
+        ({ role, text, contextText }) => ({ role, text, contextText }),
+      );
       setPersisting(true);
       try {
         if (currentChatId) {

@@ -7,7 +7,11 @@ import { supabase } from './supabase';
  * this mirrors the web app's `getChats` in fetchit-app/src/utils.js.
  */
 
-export type StoredMessage = { role: 'user' | 'assistant'; text: string };
+export type StoredMessage = {
+  role: 'user' | 'assistant';
+  text: string;
+  contextText?: string;
+};
 
 export type Chat = {
   id: string;
@@ -20,15 +24,21 @@ export type Chat = {
 // Tolerate either `text` or `content` on stored messages so older rows still load.
 function mapChat(row: any): Chat {
   const raw = Array.isArray(row?.messages) ? row.messages : [];
-  const messages: StoredMessage[] = raw.map((m: any) => ({
-    role: m?.role === 'assistant' ? 'assistant' : 'user',
-    text:
-      typeof m?.text === 'string'
-        ? m.text
-        : typeof m?.content === 'string'
-          ? m.content
-          : '',
-  }));
+  const messages: StoredMessage[] = raw.map((m: any) => {
+    const message: StoredMessage = {
+      role: m?.role === 'assistant' ? 'assistant' : 'user',
+      text:
+        typeof m?.text === 'string'
+          ? m.text
+          : typeof m?.content === 'string'
+            ? m.content
+            : '',
+    };
+    if (typeof m?.contextText === 'string' && m.contextText.trim()) {
+      message.contextText = m.contextText;
+    }
+    return message;
+  });
   return {
     id: String(row?.id),
     title: row?.title || 'Untitled chat',
