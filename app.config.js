@@ -1,3 +1,5 @@
+const paymentEnvironment = require('./config/payment-environment');
+
 module.exports = ({ config }) => {
   const profile = process.env.EAS_BUILD_PROFILE;
   const environment = profile === 'production' || profile === 'preview'
@@ -10,5 +12,6 @@ module.exports = ({ config }) => {
       ? [plugin[0], { environment }]
       : plugin
   );
+  expo.extra = { ...expo.extra, paymentEnvironment: paymentEnvironment(process.env) };
   return { expo };
 };

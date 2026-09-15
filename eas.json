@@ -10,15 +10,25 @@
       "environment": "development",
       "ios": {
         "simulator": false
+      },
+      "env": {
+        "APP_ENV": "development"
       }
     },
     "preview": {
       "distribution": "internal",
-      "environment": "production"
+      "environment": "preview",
+      "env": {
+        "APP_ENV": "preview"
+      }
     },
     "production": {
       "autoIncrement": true,
-      "environment": "production"
+      "environment": "production",
+      "env": {
+        "APP_ENV": "production",
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_live_51Th9uUQg8UTscDtyq5PmFrg5LvlMc0KhzXpoSs3k42rBZfJkFOpaCQ6zSegBxrzIt0arakY1fB1MDeVi9FfZrSLA00uREA0Mlp"
+      }
     }
   }
 }

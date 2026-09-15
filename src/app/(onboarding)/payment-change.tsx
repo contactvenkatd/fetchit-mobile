@@ -5,24 +5,25 @@ import {
   useStripe,
 } from '@stripe/stripe-react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { AuthLayout } from '@/components/AuthLayout';
 import { Button } from '@/components/ui/Button';
-import { createSubscription, getProfile, saveCard } from '@/lib/api';
+import { cancelStripeSubscriptions, createSubscription, getProfile, saveCard } from '@/lib/api';
 import { monthlyDisplay, type PlanName } from '@/lib/stripe';
 import { supabase } from '@/lib/supabase';
+import { getPlan, useAuth } from '@/lib/auth';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 // Plan-switch step — reached only by EXISTING users from Account Settings'
 // "Change Plan" (plans.tsx routes here when mode=change). It is purely the
 // billing change: no address, no terms, no name step. The chosen plan arrives as
 // a route param.
-//   • Paid plan, card on file: createSubscription charges the saved default card
-//     off-session (no client secret to confirm) → record plan.
+//   • Paid plan, card on file: confirm the saved card on-device, then cancel
+//     the previous subscription with the same policy as the web app.
 //   • Paid plan, no card: collect one via CardForm, confirmPayment → saveCard.
-//   • Free (downgrade): no charge — just record the plan.
+//   • Free (downgrade): schedule Stripe cancellation at period end.
 // Either way it lands back on /(app)/account.
 
 const brandLabel = (b: string | null) =>
@@ -40,6 +41,9 @@ type SavedCard = {
 
 export default function PaymentChangeScreen() {
   const router = useRouter();
+  const { session } = useAuth();
+  const previousPlan = useRef(getPlan(session));
+  const [paidSubscriptionId, setPaidSubscriptionId] = useState<string | null>(null);
   const { plan: planParam } = useLocalSearchParams<{ plan?: string }>();
   const plan = typeof planParam === 'string' ? planParam : '';
   const isPaid = plan !== '' && plan !== 'Free';
@@ -99,12 +103,23 @@ export default function PaymentChangeScreen() {
     router.canGoBack() ? router.back() : router.replace('/(app)/account');
   }
 
-  async function finishPlanChange(paymentMethodId?: string) {
+  async function finishPlanChange(subscriptionId: string, paymentMethodId?: string) {
     if (paymentMethodId) {
       const { error: cardErr } = await saveCard(paymentMethodId);
       if (cardErr) console.warn('saveCard after plan change failed:', cardErr.message);
     }
-    await supabase.auth.updateUser({ data: { plan, plan_billing: billing } });
+    setPaidSubscriptionId(subscriptionId);
+    const rank: Record<string, number> = { Free: 0, Plus: 1, Pro: 2, Max: 3 };
+    const { error: cancelError } = await cancelStripeSubscriptions({
+      exceptSubscriptionId: subscriptionId,
+      atPeriodEnd: (rank[plan] ?? 0) < (rank[previousPlan.current] ?? 0),
+    });
+    if (cancelError) {
+      setError('Your new plan was paid, but the previous subscription still needs updating. Tap Confirm to retry without another payment.');
+      setSaving(false);
+      return;
+    }
+    await supabase.auth.updateUser({ data: { plan, plan_billing: billing, plan_cancels_at: null } });
     setSaving(false);
     router.replace('/(app)/account');
   }
@@ -117,9 +132,19 @@ export default function PaymentChangeScreen() {
     }
     setSaving(true);
 
-    // Downgrade to Free — no payment, just record the new plan.
+    if (paidSubscriptionId) {
+      await finishPlanChange(paidSubscriptionId);
+      return;
+    }
+
+    // Schedule actual Stripe cancellation; retain paid access through period end.
     if (!isPaid) {
-      await supabase.auth.updateUser({ data: { plan: 'Free', plan_billing: billing } });
+      const { data, error: cancelError } = await cancelStripeSubscriptions({ atPeriodEnd: true });
+      if (cancelError) { setError(cancelError.message); setSaving(false); return; }
+      const periodEnd = data?.periodEnd;
+      await supabase.auth.updateUser({ data: periodEnd
+        ? { plan_cancels_at: new Date(periodEnd * 1000).toISOString() }
+        : { plan: 'Free', plan_billing: billing, plan_cancels_at: null } });
       setSaving(false);
       router.replace('/(app)/account');
       return;
@@ -132,12 +157,9 @@ export default function PaymentChangeScreen() {
       return;
     }
 
-    // 1. Server reuses/creates the customer + subscription. When a default
-    //    payment method is already on file it charges off-session and returns NO
-    //    clientSecret; otherwise it returns the first invoice's PaymentIntent
-    //    clientSecret to confirm on-device.
+    // The mobile request always confirms on-device, including saved cards.
     const { data: sub, error: subErr } = await createSubscription({ plan, billing });
-    if (subErr || !sub) {
+    if (subErr || !sub?.subscriptionId || !sub.clientSecret) {
       setError(subErr?.message ?? 'Could not start your subscription.');
       setSaving(false);
       return;
@@ -145,29 +167,25 @@ export default function PaymentChangeScreen() {
 
     if (sub.clientSecret) {
       // 2a. Confirm the card payment on-device (new card, or SCA required).
-      const { paymentIntent, error: payErr } = await confirmPayment(sub.clientSecret, {
-        paymentMethodType: 'Card',
-      });
-      if (payErr) {
-        setError(payErr.message ?? 'Payment could not be completed.');
+      const { paymentIntent, error: payErr } = await confirmPayment(sub.clientSecret,
+        hasCard && card?.paymentMethodId
+          ? { paymentMethodType: 'Card', paymentMethodData: { paymentMethodId: card.paymentMethodId } }
+          : { paymentMethodType: 'Card' },
+      );
+      if (payErr || paymentIntent?.status !== 'Succeeded') {
+        setError(payErr?.message ?? 'Payment could not be completed.');
         setSaving(false);
         return;
       }
       // Set the just-used card as the customer's default (best-effort).
-      await finishPlanChange(paymentIntent?.paymentMethod?.id);
+      await finishPlanChange(sub.subscriptionId, paymentIntent?.paymentMethod?.id);
       return;
-    } else if (card?.paymentMethodId) {
-      // 2b. Subscription completed immediately against the saved default card —
-      //     nothing to confirm. Re-assert the default (no-op if already set).
-      const { error: cardErr } = await saveCard(card.paymentMethodId);
-      if (cardErr) console.warn('saveCard after plan change failed:', cardErr.message);
     }
-
-    await finishPlanChange();
   }
 
   async function handleApplePay() {
     setError('');
+    if (paidSubscriptionId) { setSaving(true); await finishPlanChange(paidSubscriptionId); return; }
     if (!plan || !isPaid) {
       setError('No paid plan selected. Go back and choose a plan.');
       return;
@@ -175,7 +193,7 @@ export default function PaymentChangeScreen() {
     setSaving(true);
 
     const { data: sub, error: subErr } = await createSubscription({ plan, billing });
-    if (subErr || !sub?.clientSecret) {
+    if (subErr || !sub?.subscriptionId || !sub.clientSecret) {
       setError(subErr?.message ?? 'Could not start your subscription.');
       setSaving(false);
       return;
@@ -198,13 +216,13 @@ export default function PaymentChangeScreen() {
         },
       },
     );
-    if (payErr) {
-      setError(payErr.message ?? 'Payment could not be completed.');
+    if (payErr || paymentIntent?.status !== 'Succeeded') {
+      setError(payErr?.message ?? 'Payment could not be completed.');
       setSaving(false);
       return;
     }
 
-    await finishPlanChange(paymentIntent?.paymentMethod?.id);
+    await finishPlanChange(sub.subscriptionId, paymentIntent?.paymentMethod?.id);
   }
 
   if (loadingProfile) {

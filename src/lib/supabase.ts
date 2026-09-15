@@ -8,15 +8,16 @@
 //  - `react-native-url-polyfill/auto` is imported first so supabase-js's use of
 //    the WHATWG `URL` works on Hermes.
 //
-// Credentials are the SAME Supabase project as the web app, so accounts, plans,
-// chats, and orders are shared across web and mobile.
+// Production shares the web app backend. Development and preview use a
+// separate test backend, selected and validated by app.config.js.
 import 'react-native-url-polyfill/auto';
 
 import { createClient } from '@supabase/supabase-js';
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
 
-const SUPABASE_URL = 'https://fpphpncruohjlppqhfep.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_j_SnlL8-OiV_ha4pWL1lHw_AQCmalXg';
+const { supabaseUrl: SUPABASE_URL, supabaseAnonKey: SUPABASE_ANON_KEY } =
+  Constants.expoConfig!.extra!.paymentEnvironment;
 
 // ---------------------------------------------------------------------------
 // SecureStore adapter (chunked).

@@ -1,3 +1,4 @@
+import { paymentStripe, stripeIsLive } from '../_shared/stripe-backend.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ZINC_ORDERS_URL = "https://api.zinc.com/orders";
@@ -176,6 +177,27 @@ Deno.serve(async (req) => {
       "A verified phone number is required by the retailer for delivery.",
       409,
     );
+  }
+
+  // Validate references against the backend's Stripe account before Zinc can
+  // submit an order. Stale test cards require fresh live card collection.
+  try {
+    const stripe = paymentStripe();
+    const storedCustomer = await stripe.customers.retrieve(customer);
+    const storedMethod = await stripe.paymentMethods.retrieve(paymentMethod);
+    const methodCustomer = typeof storedMethod.customer === 'string'
+      ? storedMethod.customer : storedMethod.customer?.id;
+    if (storedCustomer.deleted || storedCustomer.livemode !== stripeIsLive() ||
+      storedMethod.livemode !== stripeIsLive() || methodCustomer !== customer ||
+      storedCustomer.metadata.supabase_uid !== user.id ||
+      user.user_metadata.stripe_customer_id !== customer) {
+      return failure('payment_environment_mismatch', 'Save a new card in Cards & Address before buying.', 409);
+    }
+  } catch (error) {
+    if ((error as { code?: string }).code === 'resource_missing') {
+      return failure('payment_environment_mismatch', 'Save a new card in Cards & Address before buying.', 409);
+    }
+    return failure('payment_verification_unavailable', 'Payment verification is unavailable. Try again later.', 503);
   }
 
   const zincRequest = {

@@ -73,7 +73,7 @@ export default function PaymentScreen() {
     // 1. Server reuses/creates the customer + an incomplete subscription and
     //    hands back the first invoice's PaymentIntent client secret.
     const { data: sub, error: subErr } = await createSubscription({ plan, billing });
-    if (subErr || !sub) {
+    if (subErr || !sub?.clientSecret) {
       setError(subErr?.message ?? 'Could not start your subscription.');
       setSaving(false);
       return;
@@ -84,8 +84,8 @@ export default function PaymentScreen() {
     const { paymentIntent, error: payErr } = await confirmPayment(sub.clientSecret, {
       paymentMethodType: 'Card',
     });
-    if (payErr) {
-      setError(payErr.message ?? 'Payment could not be completed.');
+    if (payErr || paymentIntent?.status !== 'Succeeded') {
+      setError(payErr?.message ?? 'Payment could not be completed.');
       setSaving(false);
       return;
     }
@@ -129,8 +129,8 @@ export default function PaymentScreen() {
         },
       },
     );
-    if (payErr) {
-      setError(payErr.message ?? 'Payment could not be completed.');
+    if (payErr || paymentIntent?.status !== 'Succeeded') {
+      setError(payErr?.message ?? 'Payment could not be completed.');
       setSaving(false);
       return;
     }
@@ -141,7 +141,7 @@ export default function PaymentScreen() {
   return (
     <AuthLayout
       title="Add Payment Method"
-      subtitle="You won't be charged until your trial ends"
+      subtitle="Your subscription starts when payment is confirmed"
       onBack={() =>
         router.canGoBack() ? router.back() : router.replace('/(onboarding)/plans')
       }>

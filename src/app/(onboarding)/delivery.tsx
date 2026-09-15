@@ -184,7 +184,7 @@ export default function DeliveryScreen() {
       // 1. Server reuses/creates the customer + an incomplete subscription and
       //    returns the first invoice's PaymentIntent client secret.
       const { data: sub, error: subErr } = await createSubscription({ plan, billing: 'monthly' });
-      if (subErr || !sub) {
+      if (subErr || !sub?.clientSecret) {
         setError(subErr?.message ?? 'Could not start your subscription.');
         setSavingCard(false);
         return;
@@ -194,8 +194,8 @@ export default function DeliveryScreen() {
       const { paymentIntent, error: payErr } = await confirmPayment(sub.clientSecret, {
         paymentMethodType: 'Card',
       });
-      if (payErr) {
-        setError(payErr.message ?? 'Payment could not be completed.');
+      if (payErr || paymentIntent?.status !== 'Succeeded') {
+        setError(payErr?.message ?? 'Payment could not be completed.');
         setSavingCard(false);
         return;
       }
@@ -309,8 +309,8 @@ export default function DeliveryScreen() {
           },
         },
       );
-      if (payErr) {
-        setError(payErr.message ?? 'Payment could not be completed.');
+      if (payErr || paymentIntent?.status !== 'Succeeded') {
+        setError(payErr?.message ?? 'Payment could not be completed.');
         setSavingCard(false);
         return;
       }

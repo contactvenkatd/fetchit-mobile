@@ -14,3 +14,25 @@ verify_jwt = false
 
 [functions.parse-shopping-intent]
 verify_jwt = true
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.stripe-readiness]
+verify_jwt = false
+
+# Preserve the production JWT gateway gate as well as handler auth.getUser checks.
+[functions.create-subscription]
+verify_jwt = true
+[functions.create-setup-intent]
+verify_jwt = true
+[functions.save-card]
+verify_jwt = true
+[functions.cancel-subscription]
+verify_jwt = true
+[functions.reactivate-subscription]
+verify_jwt = true
+
+# Narrow admin-only cleanup; validates CLI privilege and original-secret proof.
+[functions.stripe-webhook-cleanup]
+verify_jwt = false

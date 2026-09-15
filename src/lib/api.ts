@@ -80,7 +80,7 @@ export async function createSubscription(params: {
   billing: Billing;
 }): Promise<{ data?: SubscriptionData; error?: { message: string } }> {
   const { data, error } = await supabase.functions.invoke('create-subscription', {
-    body: { plan: params.plan, billing: params.billing },
+    body: { plan: params.plan, billing: params.billing, confirmOnDevice: true },
   });
   if (error)
     return { error: { message: await readFnError(error, 'Could not start your subscription.') } };
@@ -202,6 +202,17 @@ export async function familyManage(
     body: { action, inviteId },
   });
   if (error) return { error: { message: await readFnError(error, "Couldn't update the family.") } };
+  if (data?.error) return { error: { message: data.error } };
+  return { data };
+}
+
+/** Cancel only this user's subscriptions; optionally keep a newly paid one. */
+export async function cancelStripeSubscriptions(params: {
+  atPeriodEnd: boolean;
+  exceptSubscriptionId?: string;
+}): Promise<{ data?: { canceled: number; periodEnd?: number | null }; error?: { message: string } }> {
+  const { data, error } = await supabase.functions.invoke('cancel-subscription', { body: params });
+  if (error) return { error: { message: await readFnError(error, 'Could not update your previous subscription.') } };
   if (data?.error) return { error: { message: data.error } };
   return { data };
 }

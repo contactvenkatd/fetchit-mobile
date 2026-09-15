@@ -10,9 +10,11 @@
 // NOTE: card collection works in Expo Go, but Apple Pay requires a development
 // build with `merchantIdentifier` set in the app.json Stripe plugin config.
 
-// Stripe test-mode publishable key (same project as the web app). No real charges.
-export const STRIPE_PUBLISHABLE_KEY =
-  'pk_test_51Th9ugHqjZ0DYGoFydiFTMk58JXPCXzCcJxpdj0dFWC11vdv4sTiFuE5JPwu74G4jc8wQThpG8f7jL3AtDfVv89A00LkDZYfo2';
+import Constants from 'expo-constants';
+
+// Resolved and validated by app.config.js; only public values reach the bundle.
+export const STRIPE_PUBLISHABLE_KEY: string =
+  Constants.expoConfig!.extra!.paymentEnvironment.stripePublishableKey;
 
 // Authoritative price map — MUST stay in sync with the web app's PLAN_PRICING
 // and the create-subscription edge function's cents/interval table.
