@@ -1,3 +1,4 @@
+import { cardSetupErrorMessage } from '@/lib/card-setup-error.mjs';
 import {
   CardForm,
   PlatformPay,
@@ -279,7 +280,7 @@ export default function CardsAddressScreen() {
       });
       if (!setupSession.current(ticket)) return;
       if (cardErr) {
-        setCardError('Card setup failed. Please try again to start a fresh setup; if it repeats, update FetchIt.');
+        setCardError(cardSetupErrorMessage(cardErr));
         setSavingCard(false);
         return;
       }
@@ -331,7 +332,7 @@ export default function CardsAddressScreen() {
       );
       if (!setupSession.current(ticket)) return;
       if (error) {
-        setCardError('Card setup failed. Please try again to start a fresh setup; if it repeats, update FetchIt.');
+        setCardError(cardSetupErrorMessage(error));
         setSavingCard(false);
         return;
       }

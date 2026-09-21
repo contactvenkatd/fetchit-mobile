@@ -1,5 +1,8 @@
 # Cards & Address SetupIntent investigation
 
+Follow-up: [September 21 confirmation declines](card-setup-confirmation-declines.md)
+correlates recent live card declines and records the remaining device checks.
+
 Verified September 21, 2026. The original device failure is **not yet reproduced
 or conclusively attributed**. Device enumeration was blocked by the workspace's
 CoreDevice/CoreSimulator access restrictions, and the affected device's installed

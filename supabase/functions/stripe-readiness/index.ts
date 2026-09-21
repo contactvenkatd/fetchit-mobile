@@ -1,3 +1,4 @@
+import { recentSetupDiagnostics } from '../_shared/setup-diagnostics.mjs';
 import Stripe from 'npm:stripe@17.7.0';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
@@ -45,6 +46,10 @@ Deno.serve(async (req) => {
   try {
     const account = await stripe.accounts.retrieve();
     accountSummary = { stripeAuthenticated: true, accountId: account.id, chargesEnabled: account.charges_enabled, payoutsEnabled: account.payouts_enabled, capabilities: account.capabilities };
+    if (new URL(req.url).searchParams.get('setupAttempts') === 'true') {
+      stage = 'setup_attempt_diagnostics';
+      return Response.json({ ...accountSummary, ...(await recentSetupDiagnostics(stripe)) });
+    }
     stage = 'stripe_balance';
     const balance = await stripe.balance.retrieve();
     stage = 'stripe_webhooks';

@@ -53,10 +53,11 @@ exact approved live Stripe public key, production Supabase project
 fpphpncruohjlppqhfep, Card setup v2 in the JS bundle, and EXUpdatesEnabled false.
 The same IPA also passes the uploader's artifact validation.
 
-Build 7 has not been uploaded from this workspace because its upload password
-is unavailable. An authenticated Apple build query returned no build 7. It is
-not yet verified as available in TestFlight. Build 6's import failed; neither
-its transfer success nor EAS build 7's completion establishes TestFlight availability.
+Subsequent authenticated Apple verification on September 21 reports build 7
+processingState VALID, uploaded at 05:37:43 UTC (App Store Connect build ID
+fe3a77af-d589-4a31-bdb6-efb564ed8dea). It was uploaded outside this workspace's
+credential session. Do not upload it again. This confirms Apple import, not the
+installed build on the affected phone or testing-group assignment.
 No backend deployment was needed for this camera/submission change. No public
 App Store review was submitted.
 
@@ -67,7 +68,7 @@ password was found in this process or the standard submission Keychain entries.
 The cached Apple session supports read-only build checks but is not an altool
 upload password. This is a missing credential, not a request for permission.
 
-Build 7 is finished. Run:
+Historical upload instructions (build 7 is now imported; do not rerun to upload):
 
 ```sh
 cd /Users/neilduddukuri/Downloads/fetchit-mobile-main
