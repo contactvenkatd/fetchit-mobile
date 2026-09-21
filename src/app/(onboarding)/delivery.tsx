@@ -1,3 +1,4 @@
+import { SHOW_TEST_CARD_HELP } from '@/lib/payment-runtime';
 import {
   CardForm,
   PlatformPay,
@@ -517,7 +518,7 @@ export default function DeliveryScreen() {
           ) : null}
           <Text style={styles.fieldLabel}>Card details</Text>
           <CardForm
-            placeholders={{ number: '4242 4242 4242 4242' }}
+            placeholders={{ number: SHOW_TEST_CARD_HELP ? '4242 4242 4242 4242' : 'Card number' }}
             onFormComplete={(d) => setCardComplete(d.complete)}
             cardStyle={{
               backgroundColor: Colors.surface,
@@ -534,8 +535,8 @@ export default function DeliveryScreen() {
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <Text style={styles.note}>
-            🔒 Secured by Stripe — your card is never stored on our servers. Test card
-            4242 4242 4242 4242.
+            🔒 Secured by Stripe — your card is never stored on our servers.
+            {SHOW_TEST_CARD_HELP ? ' Test card 4242 4242 4242 4242.' : ''}
           </Text>
 
           <Button

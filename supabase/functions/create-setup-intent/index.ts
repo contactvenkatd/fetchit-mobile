@@ -15,8 +15,9 @@
 //
 // Mode follows backend secret storage; production requires live credentials.
 
+import { validateSetupClient, verifiedSetupResponse } from "../_shared/setup-contract.mjs";
 import Stripe from "npm:stripe@17.7.0";
-import { PaymentConfigurationError, paymentStripe, resolveCustomer } from "../_shared/stripe-backend.ts";
+import { PaymentConfigurationError, paymentStripe, resolveCustomer, stripeIsLive } from "../_shared/stripe-backend.ts";
 import { createClient } from "npm:@supabase/supabase-js@^2";
 
 const corsHeaders = {
@@ -57,6 +58,14 @@ Deno.serve(async (req) => {
     }
     const user = userData.user;
 
+    let publicKey;
+    try {
+      const body = await req.json();
+      publicKey = validateSetupClient(body, stripeIsLive());
+    } catch {
+      return json({ error: 'Payment configuration mismatch. Update FetchIt before saving a card.' }, 409);
+    }
+
     // ----- Reuse or create the Stripe customer (shared with subscriptions) ----
     const customerId = await resolveCustomer(admin, stripe, user, true);
 
@@ -64,10 +73,16 @@ Deno.serve(async (req) => {
     const setupIntent = await stripe.setupIntents.create({
       customer: customerId,
       usage: "off_session",
+      payment_method_types: ["card"],
       metadata: { supabase_uid: user.id },
     });
 
-    return json({ clientSecret: setupIntent.client_secret, customerId });
+    const publicStripe = publicKey ? new Stripe(publicKey, { apiVersion: '2025-02-24.acacia' }) : null;
+    try {
+      return json(await verifiedSetupResponse(publicStripe, setupIntent, customerId, publicKey));
+    } catch {
+      return json({ error: 'Payment configuration could not be verified. Restart or update FetchIt before retrying.' }, 409);
+    }
   } catch (err) {
     const message = err instanceof PaymentConfigurationError ? err.message : "Setup failed.";
     return json({ error: message }, 500);

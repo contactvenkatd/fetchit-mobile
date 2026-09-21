@@ -1,3 +1,4 @@
+import { SHOW_TEST_CARD_HELP } from '@/lib/payment-runtime';
 import {
   CardForm,
   PlatformPay,
@@ -165,7 +166,7 @@ export default function PaymentScreen() {
       ) : null}
       <Text style={styles.label}>Card details</Text>
       <CardForm
-        placeholders={{ number: '4242 4242 4242 4242' }}
+        placeholders={{ number: SHOW_TEST_CARD_HELP ? '4242 4242 4242 4242' : 'Card number' }}
         onFormComplete={(d) => setCardComplete(d.complete)}
         cardStyle={{
           backgroundColor: Colors.surface,

@@ -1,5 +1,5 @@
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
-import { StripeProvider } from '@stripe/stripe-react-native';
+import { PaymentProvider } from '@/components/PaymentProvider';
 import {
   DarkTheme,
   ThemeProvider,
@@ -14,7 +14,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider } from '@/lib/auth';
-import { STRIPE_PUBLISHABLE_KEY } from '@/lib/stripe';
 import { Colors } from '@/theme/colors';
 
 // Configure native Google Sign-In once, at app startup — `_layout` is the root
@@ -168,7 +167,7 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StripeProvider publishableKey={STRIPE_PUBLISHABLE_KEY} merchantIdentifier="merchant.ai.compreo.fetchit">
+        <PaymentProvider>
           <AuthProvider>
             <ThemeProvider value={FetchItTheme}>
               <StatusBar style="light" />
@@ -244,7 +243,7 @@ export default function RootLayout() {
               </Stack>
             </ThemeProvider>
           </AuthProvider>
-        </StripeProvider>
+        </PaymentProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

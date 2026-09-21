@@ -18,6 +18,9 @@ import {
   type Profile,
 } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
+import { cardSetupSession } from '@/lib/setup-session.mjs';
+import { PAYMENT_CONTEXT, SHOW_TEST_CARD_HELP, paymentDiagnostics } from '@/lib/payment-runtime';
+import { supabase } from '@/lib/supabase';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 // Cards & Address — native port of the web app's CardsAddressPage.js.
@@ -88,6 +91,27 @@ export default function CardsAddressScreen() {
   const [savingCard, setSavingCard] = useState(false);
   const [applePaySupported, setApplePaySupported] = useState(false);
 
+  const setupSession = cardSetupSession;
+  const [formGeneration, setFormGeneration] = useState(0);
+  useEffect(() => {
+    const reset = () => {
+      setupSession.reset();
+      setFormGeneration((n) => n + 1);
+      setCardComplete(false);
+      setCardError('');
+      setSavingCard(false);
+      setEditingCard(false);
+      setCard(null);
+      setAddress(EMPTY_ADDRESS);
+    };
+    reset();
+    let userId = session?.user.id;
+    const { data } = supabase.auth.onAuthStateChange((_event, next) => {
+      if (next?.user.id !== userId) { userId = next?.user.id; reset(); }
+    });
+    return () => { setupSession.reset(); data.subscription.unsubscribe(); };
+  }, [session?.user.id, setupSession, PAYMENT_CONTEXT]);
+
   // Lightweight toast (web uses a <Toast>; here a self-clearing banner).
   const [toast, setToast] = useState('');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -104,11 +128,9 @@ export default function CardsAddressScreen() {
     let active = true;
     isPlatformPaySupported()
       .then((supported) => {
-        console.log("applepay_debug supported:", supported);
-        if (active) setApplePaySupported(true); // TEMP: force true to test button visibility
+        if (active) setApplePaySupported(supported);
       })
-      .catch((err) => {
-        console.log("applepay_debug error:", JSON.stringify(err), err?.message);
+      .catch(() => {
         if (active) setApplePaySupported(false);
       });
     return () => {
@@ -175,7 +197,7 @@ export default function CardsAddressScreen() {
     showToast(error ? "Couldn't save — try again." : 'Address updated! 🐕');
   }
 
-  async function finishSavingCard(paymentMethodId: string, customerId?: string) {
+  async function finishSavingCard(ticket: object, paymentMethodId: string, customerId?: string) {
     if (!paymentMethodId) {
       setCardError('Your card could not be saved.');
       setSavingCard(false);
@@ -184,6 +206,7 @@ export default function CardsAddressScreen() {
 
     // 3. Set the card as the customer's default and get back display metadata.
     const { data: saved, error: saveErr } = await saveCard(paymentMethodId);
+    if (!setupSession.current(ticket)) return;
     if (saveErr) {
       setCardError(saveErr.message);
       setSavingCard(false);
@@ -192,7 +215,7 @@ export default function CardsAddressScreen() {
 
     // 4. Persist the Stripe ids + non-sensitive card metadata on the profile.
     const c = saved?.card ?? {};
-    await saveProfile(
+    const { error: profileError } = await saveProfile(
       {
         stripeCustomerId: customerId ?? null,
         stripePaymentMethodId: paymentMethodId,
@@ -204,6 +227,11 @@ export default function CardsAddressScreen() {
       new Date().toISOString(),
     );
 
+    if (!setupSession.current(ticket)) return;
+    if (profileError) {
+      setCardError('Card saved, but profile could not be updated. Please try again.');
+      return;
+    }
     setCard(
       c.last4
         ? { brand: c.brand ?? null, last4: c.last4, expMonth: c.expMonth ?? null, expYear: c.expYear ?? null }
@@ -216,89 +244,111 @@ export default function CardsAddressScreen() {
   }
 
   async function handleSaveCard() {
-    setCardError('');
-    if (!cardComplete) {
-      setCardError('Please enter your full card details.');
-      return;
-    }
-    setSavingCard(true);
+    const ticket = setupSession.begin();
+    if (!ticket) return;
+    try {
+      setCardError('');
+      if (!cardComplete) {
+        setCardError('Please enter your full card details.');
+        return;
+      }
+      setSavingCard(true);
 
-    const { data: setup, error: setupErr } = await createSetupIntent();
-    if (setupErr || !setup) {
-      setCardError(setupErr?.message ?? 'Could not start card setup.');
-      setSavingCard(false);
-      return;
-    }
+      const { data: setup, error: setupErr } = await createSetupIntent();
+      if (!setupSession.current(ticket)) return;
+      if (setupErr || !setup) {
+        setCardError(setupErr?.message ?? 'Could not start card setup.');
+        setSavingCard(false);
+        return;
+      }
 
-    const { setupIntent, error: cardErr } = await confirmSetupIntent(setup.clientSecret, {
-      paymentMethodType: 'Card',
-      paymentMethodData: {
-        billingDetails: {
-          name: address.fullName.trim() || undefined,
-          address: {
-            line1: address.addressLine1.trim() || undefined,
-            line2: address.addressLine2.trim() || undefined,
-            city: address.city.trim() || undefined,
-            state: address.state.trim() || undefined,
-            postalCode: address.zip.trim() || undefined,
+      const { setupIntent, error: cardErr } = await confirmSetupIntent(setup.clientSecret, {
+        paymentMethodType: 'Card',
+        paymentMethodData: {
+          billingDetails: {
+            name: address.fullName.trim() || undefined,
+            address: {
+              line1: address.addressLine1.trim() || undefined,
+              line2: address.addressLine2.trim() || undefined,
+              city: address.city.trim() || undefined,
+              state: address.state.trim() || undefined,
+              postalCode: address.zip.trim() || undefined,
+            },
           },
         },
-      },
-    });
-    if (cardErr) {
-      setCardError(cardErr.message ?? 'Your card could not be saved.');
-      setSavingCard(false);
-      return;
-    }
+      });
+      if (!setupSession.current(ticket)) return;
+      if (cardErr) {
+        setCardError('Card setup failed. Please try again to start a fresh setup; if it repeats, update FetchIt.');
+        setSavingCard(false);
+        return;
+      }
 
-    const paymentMethodId = setupIntent?.paymentMethod?.id;
-    if (!paymentMethodId) {
-      setCardError('Your card could not be saved.');
-      setSavingCard(false);
-      return;
+      const paymentMethodId = setupIntent?.paymentMethod?.id;
+      if (!paymentMethodId || setupIntent?.id !== setup.id || setupIntent.status !== 'Succeeded') {
+        setCardError('Your card could not be saved.');
+        setSavingCard(false);
+        return;
+      }
+      await finishSavingCard(ticket, paymentMethodId, setup.customerId);
+    } catch {
+      if (setupSession.current(ticket)) setCardError('Could not save your card. Please try again.');
+    } finally {
+      if (setupSession.current(ticket)) setSavingCard(false);
+      setupSession.finish(ticket);
     }
-    await finishSavingCard(paymentMethodId, setup.customerId);
   }
 
   async function handleApplePay() {
-    setCardError('');
-    setSavingCard(true);
-    const { data: setup, error: setupErr } = await createSetupIntent();
-    if (setupErr || !setup) {
-      setCardError(setupErr?.message ?? 'Could not start card setup.');
-      setSavingCard(false);
-      return;
-    }
+    const ticket = setupSession.begin();
+    if (!ticket) return;
+    try {
+      setCardError('');
+      setSavingCard(true);
+      const { data: setup, error: setupErr } = await createSetupIntent();
+      if (!setupSession.current(ticket)) return;
+      if (setupErr || !setup) {
+        setCardError(setupErr?.message ?? 'Could not start card setup.');
+        setSavingCard(false);
+        return;
+      }
 
-    const { setupIntent, error } = await confirmPlatformPaySetupIntent(
-      setup.clientSecret,
-      {
-        applePay: {
-          merchantCountryCode: 'US',
-          currencyCode: 'USD',
-          cartItems: [
-            {
-              label: 'FetchIt',
-              amount: '0.00',
-              paymentType: PlatformPay.PaymentType.Immediate,
-            },
-          ],
+      const { setupIntent, error } = await confirmPlatformPaySetupIntent(
+        setup.clientSecret,
+        {
+          applePay: {
+            merchantCountryCode: 'US',
+            currencyCode: 'USD',
+            cartItems: [
+              {
+                label: 'FetchIt',
+                amount: '0.00',
+                paymentType: PlatformPay.PaymentType.Immediate,
+              },
+            ],
+          },
         },
-      },
-    );
-    if (error) {
-      setCardError(error.message ?? 'Your card could not be saved.');
-      setSavingCard(false);
-      return;
-    }
+      );
+      if (!setupSession.current(ticket)) return;
+      if (error) {
+        setCardError('Card setup failed. Please try again to start a fresh setup; if it repeats, update FetchIt.');
+        setSavingCard(false);
+        return;
+      }
 
-    const paymentMethodId = setupIntent?.paymentMethod?.id;
-    if (!paymentMethodId) {
-      setCardError('Your card could not be saved.');
-      setSavingCard(false);
-      return;
+      const paymentMethodId = setupIntent?.paymentMethod?.id;
+      if (!paymentMethodId || setupIntent?.id !== setup.id || setupIntent.status !== 'Succeeded') {
+        setCardError('Your card could not be saved.');
+        setSavingCard(false);
+        return;
+      }
+      await finishSavingCard(ticket, paymentMethodId, setup.customerId);
+    } catch {
+      if (setupSession.current(ticket)) setCardError('Could not save your card. Please try again.');
+    } finally {
+      if (setupSession.current(ticket)) setSavingCard(false);
+      setupSession.finish(ticket);
     }
-    await finishSavingCard(paymentMethodId, setup.customerId);
   }
 
   if (authLoading || loadingProfile) {
@@ -456,7 +506,8 @@ export default function CardsAddressScreen() {
               ) : null}
               <Text style={styles.fieldLabel}>Card details</Text>
               <CardForm
-                placeholders={{ number: '4242 4242 4242 4242' }}
+                key={`${PAYMENT_CONTEXT}:${session?.user.id}:${formGeneration}`}
+                placeholders={{ number: SHOW_TEST_CARD_HELP ? '4242 4242 4242 4242' : 'Card number' }}
                 onFormComplete={(d) => setCardComplete(d.complete)}
                 cardStyle={{
                   backgroundColor: Colors.surface,
@@ -474,7 +525,7 @@ export default function CardsAddressScreen() {
               {cardError ? <Text style={styles.error}>{cardError}</Text> : null}
               <Text style={styles.note}>
                 🔒 Secured by Stripe — your card is never stored on our servers.
-                Test card 4242 4242 4242 4242.
+                {SHOW_TEST_CARD_HELP ? ' Test card 4242 4242 4242 4242.' : ''}
               </Text>
 
               <Button
@@ -496,6 +547,7 @@ export default function CardsAddressScreen() {
             </View>
           )}
         </View>
+        <Text selectable style={styles.note}>{paymentDiagnostics()}</Text>
       </ScrollView>
 
       {toast ? (

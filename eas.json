@@ -30,5 +30,14 @@
         "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_live_51Th9uUQg8UTscDtyq5PmFrg5LvlMc0KhzXpoSs3k42rBZfJkFOpaCQ6zSegBxrzIt0arakY1fB1MDeVi9FfZrSLA00uREA0Mlp"
       }
     }
+  },
+  "submit": {
+    "production": {
+      "ios": {
+        "ascAppId": "6814347211",
+        "appleId": "vduddukuri@gmail.com",
+        "appleTeamId": "PV7JV2P9Q8"
+      }
+    }
   }
 }

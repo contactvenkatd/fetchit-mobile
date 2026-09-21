@@ -1,3 +1,6 @@
+import { STRIPE_PUBLISHABLE_KEY } from './stripe';
+import { ensureStripeReady } from './payment-runtime';
+import { validateSetupResponse } from './setup-session.mjs';
 import type { Billing } from './stripe';
 import { supabase } from './supabase';
 
@@ -9,7 +12,7 @@ import { supabase } from './supabase';
  * `createSubscription` in fetchit-app/src/utils.js.
  */
 
-export type SetupIntentData = { clientSecret: string; customerId?: string };
+export type SetupIntentData = { id: string; clientSecret: string; customerId?: string; livemode: boolean };
 export type SubscriptionData = {
   clientSecret: string;
   subscriptionId?: string;
@@ -45,12 +48,17 @@ export async function createSetupIntent(): Promise<{
   data?: SetupIntentData;
   error?: { message: string };
 }> {
+  await ensureStripeReady();
   const { data, error } = await supabase.functions.invoke('create-setup-intent', {
-    body: {},
+    body: { publishableKey: STRIPE_PUBLISHABLE_KEY, stripeAccountId: null },
   });
   if (error) return { error: { message: await readFnError(error, 'Could not start card setup.') } };
   if (data?.error) return { error: { message: data.error } };
-  return { data };
+  try {
+    return { data: validateSetupResponse(data, STRIPE_PUBLISHABLE_KEY) };
+  } catch (e) {
+    return { error: { message: (e as Error).message } };
+  }
 }
 
 /**

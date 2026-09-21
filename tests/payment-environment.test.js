@@ -55,6 +55,9 @@ test('payment configuration preserves App Attest profile selection', () => {
       const result = config({ config: base }).expo;
       const expected = profile === 'development' ? 'development' : 'production';
       assert.equal(result.ios.entitlements['com.apple.developer.devicecheck.appattest-environment'], expected);
+      assert.equal(result.ios.infoPlist.NSCameraUsageDescription, 'Allow camera access to scan a payment card and fill in its details.');
+      assert.equal(result.ios.infoPlist.ITSAppUsesNonExemptEncryption, false);
+      assert.equal(base.ios.entitlements['com.apple.developer.devicecheck.appattest-environment'], 'development');
       assert.equal(result.plugins.find(p => Array.isArray(p) && p[0] === './plugins/withAppAttest')[1].environment, expected);
     }
   } finally {

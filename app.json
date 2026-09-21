@@ -18,7 +18,8 @@
         ]
       },
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Allow camera access to scan a payment card and fill in its details."
       }
     },
     "android": {
