@@ -1,4 +1,6 @@
+import { readOrderStatus } from '../_shared/order-status.ts';
 import { paymentStripe, stripeIsLive } from '../_shared/stripe-backend.ts';
+import { connectPricingSupported, createCheckoutQuote, approvesQuote } from '../_shared/checkout-pricing.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ZINC_ORDERS_URL = "https://api.zinc.com/orders";
@@ -20,6 +22,8 @@ const failure = (code: string, message: string, status: number) =>
   json({ error: { code, message } }, status);
 
 interface PlaceOrderRequest {
+  action?: "quote" | "place";
+  approval?: unknown;
   productUrl: string;
   quantity: number;
   displayedPriceCents: number;
@@ -32,6 +36,7 @@ interface PlaceOrderRequest {
 interface ZincOrderResponse {
   id?: unknown;
   status?: unknown;
+  connect?: { simulated?: unknown };
   error?: { code?: unknown; message?: unknown };
   code?: unknown;
   message?: unknown;
@@ -49,12 +54,13 @@ function isPlaceOrderRequest(value: unknown): value is PlaceOrderRequest {
   }
 
   return (
+    (body.action === undefined || body.action === "quote" || body.action === "place") &&
     typeof body.productUrl === "string" &&
     body.productUrl.length <= 4000 &&
     Number.isInteger(body.quantity) &&
     (body.quantity as number) >= 1 &&
     (body.quantity as number) <= 100 &&
-    Number.isInteger(body.displayedPriceCents) &&
+    Number.isSafeInteger(body.displayedPriceCents) &&
     (body.displayedPriceCents as number) > 0 &&
     typeof body.productName === "string" &&
     body.productName.trim().length > 0 &&
@@ -118,7 +124,12 @@ Deno.serve(async (req) => {
   } catch {
     return failure("invalid_json", "The request body must be valid JSON.", 400);
   }
-  if (!isPlaceOrderRequest(body)) {
+  const statusRequest = body && typeof body === 'object' && (body as Record<string, unknown>).action === 'status'
+    ? body as { action: 'status'; orderId?: unknown } : null;
+  if (statusRequest && (typeof statusRequest.orderId !== 'string' || !/^[a-f0-9-]{36}$/i.test(statusRequest.orderId))) {
+    return failure('invalid_order', 'The order reference is invalid.', 400);
+  }
+  if (!statusRequest && !isPlaceOrderRequest(body)) {
     return failure("invalid_order", "The order details are invalid or incomplete.", 400);
   }
 
@@ -127,6 +138,13 @@ Deno.serve(async (req) => {
   const zincApiKey = Deno.env.get("ZINC_API_KEY")?.trim();
   if (!supabaseUrl || !supabaseAnonKey || !zincApiKey) {
     return failure("service_not_configured", "Order placement is not configured.", 503);
+  }
+  const production = new URL(supabaseUrl).hostname === 'fpphpncruohjlppqhfep.supabase.co';
+  if (production && !zincApiKey.startsWith('zn_live_')) {
+    return failure('zinc_environment_mismatch', 'Checkout is unavailable because the retailer integration is not configured for live purchases. Contact support.', 503);
+  }
+  if (!statusRequest && production && !connectPricingSupported()) {
+    return failure('checkout_pricing_unavailable', 'Checkout is unavailable until the complete customer charge and its maximum are confirmed. No order was submitted.', 503);
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -139,6 +157,19 @@ Deno.serve(async (req) => {
   if (authError || !user) {
     return failure("unauthorized", "Your session is invalid or expired.", 401);
   }
+
+  if (statusRequest) {
+    const { data: ownedOrder, error: lookupError } = await supabase.from('orders')
+      .select('id,zinc_order_id').eq('id', statusRequest.orderId).eq('user_id', user.id).maybeSingle();
+    if (lookupError || !ownedOrder) return failure('order_not_found', 'The order could not be found.', 404);
+    try {
+      return json({ status: await readOrderStatus(ownedOrder.zinc_order_id, zincApiKey) });
+    } catch {
+      return failure('order_status_unavailable', 'The latest order or payment status could not be verified. Do not submit another purchase.', 502);
+    }
+  }
+  // Validation above establishes this only after excluding the status action.
+  const orderBody = body as PlaceOrderRequest;
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
@@ -179,6 +210,19 @@ Deno.serve(async (req) => {
     );
   }
 
+  const quote = await createCheckoutQuote({
+    userId: user.id, productUrl: orderBody.productUrl, quantity: orderBody.quantity,
+    retailerBudgetCents: orderBody.displayedPriceCents,
+    profile: { customer, paymentMethod, firstName: name.firstName, lastName: name.lastName,
+      addressLine1, addressLine2: String(profile.address_line2 ?? '').trim(), city,
+      state: String(profile.state ?? '').trim(), postalCode, country, phone },
+  });
+  if (!quote) return failure('checkout_pricing_unavailable',
+    'The maximum authorization cannot be verified. No order was submitted.', 503);
+  if (orderBody.action === 'quote') return json({ quote });
+  if (!approvesQuote(orderBody.approval, quote)) return failure('checkout_approval_required',
+    'The checkout maximum or details changed. Review and approve the updated maximum before placing your order.', 409);
+
   // Validate references against the backend's Stripe account before Zinc can
   // submit an order. Stale test cards require fresh live card collection.
   try {
@@ -201,7 +245,7 @@ Deno.serve(async (req) => {
   }
 
   const zincRequest = {
-    products: [{ url: body.productUrl, quantity: body.quantity }],
+    products: [{ url: orderBody.productUrl, quantity: orderBody.quantity }],
     shipping_address: {
       first_name: name.firstName,
       last_name: name.lastName,
@@ -213,8 +257,9 @@ Deno.serve(async (req) => {
       phone_number: phone,
       country,
     },
-    max_price: body.displayedPriceCents,
-    idempotency_key: body.idempotencyKey,
+    // Retailer ceiling only; never send/capture the approved customer maximum as goods cost.
+    max_price: quote.retailerBudgetCents,
+    idempotency_key: orderBody.idempotencyKey,
     payment: {
       mode: "connect",
       payment_method: paymentMethod,
@@ -223,11 +268,18 @@ Deno.serve(async (req) => {
     },
   };
 
+  // Stripe reference verification can outlast the approval window. Recheck
+  // immediately before the first potentially financial upstream request.
+  if (!approvesQuote(orderBody.approval, quote)) return failure('checkout_approval_required',
+    'This maximum expired. Review and approve a fresh maximum before placing your order.', 409);
+
   let zincResponse: Response;
   let zincOrder: ZincOrderResponse;
   try {
     zincResponse = await fetch(ZINC_ORDERS_URL, {
       method: "POST",
+      redirect: 'error',
+      signal: AbortSignal.timeout(20000),
       headers: {
         Authorization: `Bearer ${zincApiKey}`,
         "Content-Type": "application/json",
@@ -248,28 +300,43 @@ Deno.serve(async (req) => {
     const status = zincResponse.status === 402 ? 402 : zincResponse.status < 500 ? 409 : 502;
     return failure(upstream.code, upstream.message, status);
   }
-  if (typeof zincOrder.id !== "string" || typeof zincOrder.status !== "string") {
+  const simulated = production && zincOrder.connect?.simulated === true;
+  if (typeof zincOrder.id !== "string" || (!simulated && typeof zincOrder.status !== "string")) {
     return failure("malformed_zinc_response", "Zinc accepted an order but returned no order ID.", 502);
   }
 
-  const orderPriceDollars = body.displayedPriceCents / 100;
+
+  const orderPriceDollars = orderBody.displayedPriceCents / 100;
   const { data: savedOrder, error: insertError } = await supabase
     .from("orders")
     .insert({
-      product_name: body.productName.trim(),
+      user_id: user.id,
+      product_name: orderBody.productName.trim(),
       order_price: orderPriceDollars,
       service_fee: 0,
-      product_image: body.productImage,
-      retailer: body.retailer.trim(),
+      product_image: orderBody.productImage,
+      retailer: orderBody.retailer.trim(),
       category: null,
       zinc_order_id: zincOrder.id,
-      status: zincOrder.status,
+      status: simulated ? 'configuration_failed' : zincOrder.status,
     })
     .select("id")
     .single();
 
+  if (simulated) {
+    // Preserve the accepted ID even when local persistence fails. Do not report
+    // a successful purchase or invite a retry after an upstream acceptance.
+    console.error(JSON.stringify({ code: 'zinc_simulation_detected', zincOrderId: zincOrder.id,
+      recorded: !insertError }));
+    return json({ error: {
+      code: 'place_order_failed', reason: 'zinc_simulation_detected',
+      message: 'The retailer returned a simulated order. Contact support before submitting another purchase.',
+    }, investigation: { zincOrderId: zincOrder.id, orderId: savedOrder?.id ?? null,
+      recorded: !insertError }, retryAllowed: false }, 503);
+  }
+
   if (insertError) {
-    console.error("Order accepted by Zinc but local record failed:", insertError.message);
+    console.error(JSON.stringify({ code: 'order_record_failed', zincOrderId: zincOrder.id }));
     return json(
       {
         success: true,
@@ -277,7 +344,7 @@ Deno.serve(async (req) => {
           id: null,
           zincOrderId: zincOrder.id,
           status: zincOrder.status,
-          totalCents: body.displayedPriceCents,
+          totalCents: orderBody.displayedPriceCents,
           recorded: false,
         },
         warning: "Your order was submitted, but it may take a moment to appear in history.",
@@ -293,7 +360,7 @@ Deno.serve(async (req) => {
         id: savedOrder.id,
         zincOrderId: zincOrder.id,
         status: zincOrder.status,
-        totalCents: body.displayedPriceCents,
+        totalCents: orderBody.displayedPriceCents,
         recorded: true,
       },
     },

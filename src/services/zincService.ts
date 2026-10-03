@@ -5,6 +5,8 @@ export interface ProductResult {
   title: string;
   /** Price in cents, matching Zinc's API. */
   price: number | null;
+  /** Unknown unless explicitly supplied by the search response. */
+  currency?: string | null;
   image: string | null;
   retailer: string;
   /** Currently the orderable retailer URL returned by Zinc. */

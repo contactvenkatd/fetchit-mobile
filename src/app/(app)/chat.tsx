@@ -385,6 +385,7 @@ export default function ChatScreen() {
                           retailer: product.retailer,
                           priceCents: product.price?.toString() ?? '',
                           quantity: (item.quantity ?? 1).toString(),
+                          currency: product.currency ?? '',
                         },
                       })
                     }

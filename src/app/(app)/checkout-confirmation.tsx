@@ -2,17 +2,22 @@ import * as Crypto from 'expo-crypto';
 import { Image } from 'expo-image';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Button } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
 import { getProfile, type Profile } from '@/lib/api';
 import {
   placeOrder,
+  getCheckoutQuote,
+  getCheckoutOrderStatus,
+  type CheckoutOrderStatus,
+  type CheckoutQuote,
   PlaceOrderError,
   type PlacedOrder,
 } from '@/services/orderService';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
+import { reviewCheckoutPrice, formatKnownPrice, hasApprovedMaximum, maximumApprovalText, parseRetailerBudget, formatUsdCents } from '@/services/checkoutPricing';
 
 const param = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? value[0] ?? '' : value ?? '';
@@ -29,6 +34,7 @@ export default function CheckoutConfirmationScreen() {
     retailer?: string;
     priceCents?: string;
     quantity?: string;
+    currency?: string;
   }>();
 
   const productUrl = param(params.productUrl);
@@ -36,24 +42,41 @@ export default function CheckoutConfirmationScreen() {
   const image = param(params.image) || null;
   const retailer = param(params.retailer);
   const unitPriceCents = Number(param(params.priceCents));
-  const quantity = Math.max(1, Number(param(params.quantity)) || 1);
-  const totalCents = unitPriceCents * quantity;
+  const quantity = param(params.quantity) === '' ? 1 : Number(param(params.quantity));
+  const pricing = reviewCheckoutPrice(unitPriceCents, quantity, param(params.currency) || null);
+  const totalCents = pricing.itemSubtotalCents ?? 0;
   const validProduct =
     productUrl.startsWith('https://') &&
     title.length > 0 &&
     retailer.length > 0 &&
-    Number.isInteger(unitPriceCents) &&
+    Number.isSafeInteger(unitPriceCents) &&
     unitPriceCents > 0 &&
-    Number.isInteger(quantity) &&
-    quantity <= 100;
+    Number.isSafeInteger(quantity) && quantity >= 1 &&
+    quantity <= 100 && pricing.itemSubtotalCents !== null;
 
   const idempotencyKey = useRef(Crypto.randomUUID()).current;
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  // React state does not update synchronously between two taps. Keep the lock
+  // after acceptance or an unknown outcome, including a lost confirmation.
+  const submissionLocked = useRef(false);
+  const [outcomeUnknown, setOutcomeUnknown] = useState(false);
   const [error, setError] = useState('');
   const [placedOrder, setPlacedOrder] = useState<PlacedOrder | null>(null);
   const [warning, setWarning] = useState('');
+  const [latestStatus, setLatestStatus] = useState<CheckoutOrderStatus | null>(null);
+  const [statusError, setStatusError] = useState('');
+  const [budgetInput, setBudgetInput] = useState('');
+  const retailerBudgetCents = budgetInput ? parseRetailerBudget(budgetInput) : totalCents;
+  const [quoteResult, setQuoteResult] = useState<{ quote: CheckoutQuote; context: string } | null>(null);
+  const [approvedQuoteId, setApprovedQuoteId] = useState<string | null>(null);
+  const [quoteError, setQuoteError] = useState('');
+  const [quoteRefresh, setQuoteRefresh] = useState(0);
+  const quoteContext = JSON.stringify([productUrl, quantity, retailerBudgetCents, profile]);
+  const quote = quoteResult?.context === quoteContext ? quoteResult.quote : null;
+  const canSubmit = hasApprovedMaximum(quote, approvedQuoteId);
+
 
   useEffect(() => {
     let active = true;
@@ -79,15 +102,62 @@ export default function CheckoutConfirmationScreen() {
     profile?.stripeCustomerId && profile.stripePaymentMethodId && profile.cardLast4,
   );
 
+  useEffect(() => {
+    let active = true;
+    setQuoteResult(null);
+    setApprovedQuoteId(null);
+    setQuoteError('');
+    if (validProduct && hasAddress && hasCard && retailerBudgetCents && !outcomeUnknown && !submissionLocked.current) {
+      getCheckoutQuote({ productUrl, quantity, displayedPriceCents: retailerBudgetCents,
+        productName: title, productImage: image, retailer, idempotencyKey }).then(value => {
+        if (active) setQuoteResult({ quote: value, context: quoteContext });
+      }).catch(() => {
+        if (active) setQuoteError('Checkout is unavailable until Zinc’s fees, currency, and maximum charge rules are verified. No order was submitted.');
+      });
+    }
+    return () => { active = false; };
+  }, [quoteContext, validProduct, hasAddress, hasCard, quoteRefresh, outcomeUnknown]);
+
+  useEffect(() => {
+    if (!quote) return;
+    const timer = setTimeout(() => {
+      setQuoteResult(null);
+      setApprovedQuoteId(null);
+      setQuoteError('This maximum expired. Refresh it and approve again before placing your order.');
+    }, Math.max(0, quote.expiresAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [quote]);
+
+  useEffect(() => {
+    if (!placedOrder?.id) return;
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try {
+        const status = await getCheckoutOrderStatus(placedOrder.id!);
+        if (!active) return;
+        setLatestStatus(status);
+        setStatusError('');
+      } catch {
+        if (active) setStatusError('Latest order and payment status are unconfirmed. Do not submit another purchase.');
+      }
+      if (active) timer = setTimeout(refresh, 5000);
+    };
+    void refresh();
+    return () => { active = false; clearTimeout(timer); };
+  }, [placedOrder?.id]);
+
   async function confirmPurchase() {
-    if (!validProduct || !hasAddress || !hasCard || submitting) return;
+    if (!validProduct || !hasAddress || !hasCard || !hasApprovedMaximum(quote, approvedQuoteId) || !retailerBudgetCents || submissionLocked.current) return;
+    submissionLocked.current = true;
     setError('');
     setSubmitting(true);
     try {
       const result = await placeOrder({
         productUrl,
         quantity,
-        displayedPriceCents: totalCents,
+        displayedPriceCents: retailerBudgetCents,
+        approval: { quoteId: quote!.id, maximumCents: quote!.maximumCents, currency: quote!.currency },
         productName: title,
         productImage: image,
         retailer,
@@ -96,10 +166,19 @@ export default function CheckoutConfirmationScreen() {
       setPlacedOrder(result.order);
       setWarning(result.warning ?? '');
     } catch (orderError) {
+      const unknown = !(orderError instanceof PlaceOrderError) || orderError.outcomeUnknown;
+      setOutcomeUnknown(unknown);
+      if (!unknown) submissionLocked.current = false;
+      if (!unknown && orderError instanceof PlaceOrderError &&
+          ['checkout_approval_required', 'max_price_exceeded'].includes(orderError.code)) {
+        setApprovedQuoteId(null);
+        setQuoteResult(null);
+        setQuoteRefresh(value => value + 1);
+      }
       setError(
-        orderError instanceof PlaceOrderError
+        orderError instanceof PlaceOrderError && !unknown
           ? orderError.userMessage
-          : "We couldn't place your order. Please try again.",
+          : 'We could not confirm the order outcome. Check order history and contact support before submitting another purchase.',
       );
     } finally {
       setSubmitting(false);
@@ -123,7 +202,20 @@ export default function CheckoutConfirmationScreen() {
           <Text style={styles.successText}>
             Zinc order {placedOrder.zincOrderId} is {placedOrder.status.replaceAll('_', ' ')}.
           </Text>
-          <Text style={styles.total}>${(placedOrder.totalCents / 100).toFixed(2)}</Text>
+          <Text style={styles.detailText}>Submission accepted; retailer and payment outcomes are separate.</Text>
+          {latestStatus ? (
+            <>
+              <Text style={styles.detailText}>Zinc status: {latestStatus.zincStatus}</Text>
+              <Text style={styles.detailText}>Retailer status: {latestStatus.retailerStatus}</Text>
+              <Text style={styles.detailText}>Payment status: {latestStatus.payment.status}</Text>
+              {latestStatus.simulated ? <Text style={styles.warning}>Sandbox simulation. No real retailer purchase or card charge is confirmed.</Text> : null}
+              {latestStatus.errorCode ? <Text style={styles.error}>Order error: {latestStatus.errorCode}. A higher budget requires new approval.</Text> : null}
+              {latestStatus.payment.actualChargeCents !== null ? (
+                <Text style={styles.detailPrimary}>Actual captured amount: {formatKnownPrice(latestStatus.payment.actualChargeCents, latestStatus.payment.currency)}</Text>
+              ) : <Text style={styles.detailText}>Captured amount: Unconfirmed</Text>}
+            </>
+          ) : <Text style={styles.detailText}>Actual payment amount must be confirmed in order status.</Text>}
+          {statusError ? <Text style={styles.warning}>{statusError}</Text> : null}
           {warning ? <Text style={styles.warning}>{warning}</Text> : null}
           <Button label="View order history" onPress={() => router.replace('/(app)/order-history')} />
           <Button label="Back to shopping" variant="secondary" onPress={() => router.replace('/(app)/chat')} />
@@ -148,13 +240,41 @@ export default function CheckoutConfirmationScreen() {
           <View style={styles.productCopy}>
             <Text style={styles.productTitle}>{title || 'Unknown product'}</Text>
             <Text style={styles.retailer}>{retailer || 'Unknown retailer'}</Text>
-            <Text style={styles.price}>${(totalCents / 100).toFixed(2)}</Text>
+            <Text style={styles.price}>Item subtotal: {formatKnownPrice(pricing.itemSubtotalCents, pricing.currency)}</Text>
             {quantity > 1 ? (
               <Text style={styles.quantity}>
-                {quantity} × ${(unitPriceCents / 100).toFixed(2)}
+                {quantity} × {formatKnownPrice(unitPriceCents, pricing.currency)}
               </Text>
             ) : null}
           </View>
+        </View>
+
+        <View style={styles.detailCard}>
+          <Text style={styles.sectionTitle}>Customer charge</Text>
+          <Text style={styles.detailText}>Shipping: Not quoted</Text>
+          <Text style={styles.detailText}>Tax: Not quoted</Text>
+          <Text style={styles.detailText}>FetchIt service fee: 0 · no margin</Text>
+          <Text style={styles.detailText}>Zinc fee: Not confirmed</Text>
+          <Text style={styles.detailText}>Payment processing fee: Not confirmed</Text>
+          <Text style={styles.detailText}>Retailer spending limit in USD, including shipping and taxes:</Text>
+          <TextInput accessibilityLabel="Retailer spending limit in USD" keyboardType="decimal-pad"
+            value={budgetInput} placeholder={formatUsdCents(totalCents)}
+            placeholderTextColor={Colors.textFaint} style={styles.budgetInput}
+            editable={!submitting && !outcomeUnknown && !submissionLocked.current}
+            onChangeText={value => { setApprovedQuoteId(null); setBudgetInput(value); }} />
+          {quote ? (
+            <>
+              <Text style={styles.detailPrimary}>{maximumApprovalText(quote.maximumCents)}</Text>
+              <Text style={styles.detailText}>Currency: USD. This is a spending ceiling, not a fixed final price.</Text>
+              <Text style={styles.detailText}>Your bank may temporarily hold up to this amount. Zinc captures only the actual total after retailer placement; unused authorization is released. Your bank controls when released funds become available.</Text>
+              <Button label={approvedQuoteId === quote.id ? 'Maximum approved' : 'Approve maximum'}
+                variant="secondary" disabled={submitting || outcomeUnknown || approvedQuoteId === quote.id}
+                onPress={() => { if (quote.expiresAt > Date.now()) setApprovedQuoteId(quote.id); }} />
+            </>
+          ) : <Text style={styles.detailPrimary}>{quoteError || 'Maximum authorization unavailable.'}</Text>}
+          {!quote && !submitting && !outcomeUnknown ? (
+            <Button label="Refresh maximum" variant="secondary" onPress={() => setQuoteRefresh(value => value + 1)} />
+          ) : null}
         </View>
 
         <View style={styles.detailCard}>
@@ -192,15 +312,18 @@ export default function CheckoutConfirmationScreen() {
 
         <View style={styles.actions}>
           <Button
-            label="Confirm & Buy"
+            label={quote ? 'Place Order' : 'Maximum unavailable'}
             onPress={confirmPurchase}
             loading={submitting}
-            disabled={!validProduct || !hasAddress || !hasCard}
+            disabled={!validProduct || !hasAddress || !hasCard || !canSubmit || outcomeUnknown}
           />
+          {outcomeUnknown ? (
+            <Button label="View order history" variant="secondary" onPress={() => router.replace('/(app)/order-history')} />
+          ) : null}
           <Button label="Cancel" variant="ghost" disabled={submitting} onPress={() => router.back()} />
         </View>
         <Text style={styles.disclaimer}>
-          Your card may be authorized for exactly ${(totalCents / 100).toFixed(2)}. The order will not proceed if the retailer price exceeds this amount.
+          The item subtotal is not the final charge. Approve the maximum above before placing an order. If retailer costs exceed your spending limit, a higher limit requires new approval.
         </Text>
       </ScrollView>
     </Screen>
@@ -227,6 +350,7 @@ const styles = StyleSheet.create({
   retailer: { color: Colors.textMuted, fontSize: FontSize.sm, marginTop: Spacing.xs, textTransform: 'capitalize' },
   price: { color: Colors.yellow, fontSize: FontSize.xl, fontWeight: '800', marginTop: Spacing.sm },
   quantity: { color: Colors.textFaint, fontSize: FontSize.xs, marginTop: 2 },
+  budgetInput: { color: Colors.text, borderColor: Colors.border, borderWidth: 1, borderRadius: Radius.md, padding: Spacing.sm },
   detailCard: { padding: Spacing.md, gap: Spacing.xs, backgroundColor: Colors.surface, borderRadius: Radius.lg, borderWidth: 1, borderColor: Colors.border },
   sectionTitle: { color: Colors.textMuted, fontSize: FontSize.sm, fontWeight: '700', marginBottom: Spacing.xs },
   detailPrimary: { color: Colors.text, fontSize: FontSize.md, fontWeight: '700' },

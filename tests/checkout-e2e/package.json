@@ -1,0 +1,6 @@
+{
+  "name": "fetchit-isolated-checkout-tests",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": { "jsdom": "26.1.0" }
+}
