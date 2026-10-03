@@ -55,7 +55,9 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "expo lint",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "test:checkout": "node --test tests/order-placement.test.js tests/checkout-e2e/checkout.test.cjs tests/checkout-e2e/providers.test.cjs",
+    "test:checkout:sandbox": "node tests/checkout-e2e/sandbox.cjs"
   },
   "private": true
 }

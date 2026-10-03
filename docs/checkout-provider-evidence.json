@@ -1,0 +1,171 @@
+{
+  "observedAt": "2026-10-03T16:02:43.904Z",
+  "stripe": {
+    "outcome": "passed",
+    "scope": "Stripe test component only; not Zinc Connect",
+    "runId": "1109f588-5009-4e83-8b5f-40e67dab7655",
+    "livemode": false,
+    "authorizedCents": 1100,
+    "rejectedCaptureCents": 1101,
+    "actualCapturedCents": 950,
+    "remainingCapturableCents": 0,
+    "idempotencyVerified": true,
+    "declineVerified": true,
+    "completedAt": "2026-10-03T15:58:18.331Z",
+    "completeCheckoutVerified": false
+  },
+  "zinc": [
+    {
+      "orderId": "e1ba1fe1-678a-4f46-bb43-8fe2c47204f8",
+      "retailerBudgetCents": 908,
+      "simulated": true,
+      "status": "order_placed",
+      "connectState": "secured",
+      "securedCents": 1069,
+      "zincFeeCents": 100,
+      "stripeFeeCents": null,
+      "finalChargeCents": null,
+      "retailerTotalCents": 808,
+      "paymentCurrency": "USD"
+    },
+    {
+      "orderId": "c211724b-4fea-4aec-bd00-ac534f044a6a",
+      "retailerBudgetCents": 909,
+      "simulated": true,
+      "status": "order_placed",
+      "connectState": "secured",
+      "securedCents": 1070,
+      "zincFeeCents": 100,
+      "stripeFeeCents": null,
+      "finalChargeCents": null,
+      "retailerTotalCents": 809,
+      "paymentCurrency": "USD"
+    },
+    {
+      "orderId": "1d290139-1296-453a-a5a0-c33d8ef09475",
+      "retailerBudgetCents": 1000,
+      "simulated": true,
+      "status": "order_placed",
+      "connectState": "secured",
+      "securedCents": 1164,
+      "zincFeeCents": 100,
+      "stripeFeeCents": null,
+      "finalChargeCents": null,
+      "retailerTotalCents": 900,
+      "paymentCurrency": "USD"
+    }
+  ],
+  "completeCheckoutVerified": false,
+  "productionCustomerMaximumVerified": false,
+  "productionPricingGuard": "maximum-only guard replaced by verified USD estimate and explicit variable-fee consent",
+  "interpretation": "Sandbox holds fit nearest-cent gross-up at the documented example rate; this is an inference, not a production algorithm or aggregate charge guarantee.",
+  "productionFeeAccessCheck": {
+    "checkedAt": "2026-10-03T16:59:14.736021+00:00",
+    "readOnlyManagementAccessVerified": true,
+    "zincSecretPresent": true,
+    "managementReturnsDigestOnly": true,
+    "usableProductionZincKeyAvailable": false,
+    "actualProductionOrderFeeCents": 100,
+    "actualProductionConnectProcessingFees": null,
+    "testsRepeated": false,
+    "newQuoteEndpointRequired": false,
+    "maximumConstruction": "conditional on authoritative fixed fee inputs, USD retailer-cost enforcement and aggregate authorization/capture guarantee",
+    "supportQuestion": "For Zinc user 1035 with a verified 100-cent Zinc fee and zero margin, which production Connect formula (processing percentage, fixed cents, charge currency, integer rounding and any issuer-country/FX surcharges) applies to authorization at max_price and capture at the actual retailer total, and are those inputs fixed per approved order so the formula evaluated at max_price reliably bounds both amounts?",
+    "feeReadSource": "user-executed hidden single GET /wallet/me, saved result independently read and verified"
+  },
+  "productionWalletObservation": {
+    "observedAt": "2026-10-03T17:14:00.424869+00:00",
+    "source": "https://api.zinc.com/wallet/me",
+    "method": "GET",
+    "userId": 1035,
+    "userVerified": true,
+    "orderFeeCents": 100,
+    "connectFeeApplicabilityVerified": false,
+    "productionCustomerMaximumVerified": false,
+    "financialOperations": 0
+  },
+  "documentedCurrencyAndLifecycleRules": [
+    {
+      "source": "https://www.zinc.com/docs/changelog",
+      "entryDate": "2026-10-02",
+      "finding": "Retailer checkout totals are converted before comparison with the USD max_price cap at the same rate used for billing, including retries/recovery."
+    },
+    {
+      "source": "https://www.zinc.com/docs/changelog",
+      "entryDate": "2026-07-24",
+      "finding": "Connect holds released on all terminal failure paths, including cancellation and retried placement."
+    },
+    {
+      "source": "https://www.zinc.com/docs/v2/connect",
+      "finding": "Maximum held; actual total captured; unused authorization released. Processing 2.9%+30 cents appears in an example, not an account-specific fee schedule."
+    }
+  ],
+  "remainingUnresolvedFact": "The order-fixed production Connect processing function applicable to user 1035, including rate, fixed fee, charge currency, rounding and surcharge rules.",
+  "approvedEstimateFlow": {
+    "verifiedAt": "2026-10-03T20:38:12.738916+00:00",
+    "revision": "usd-variable-fees-v1",
+    "userApproved": true,
+    "currency": "USD",
+    "zincFeeCents": 100,
+    "zincFeeAuthority": "https://www.zinc.com/docs/v2/connect (standard $1 fee independently documented)",
+    "fetchitMarginCents": 0,
+    "shippingCents": null,
+    "taxCents": null,
+    "paymentFeeCents": null,
+    "estimatedTotalCents": null,
+    "display": "item subtotal + $1 + shipping, taxes and processing fees (unknown amounts)",
+    "disclosure": "Estimated total. Final shipping, taxes, and processing fees may vary.",
+    "retailerBudgetSeparate": true,
+    "oldMaximumConsentRejected": true,
+    "offlineTestsPassed": 55,
+    "typescriptPassed": true,
+    "providerTestsRepeated": false,
+    "liveOrdersHoldsChargesCreated": 0,
+    "completeLiveConnectCaptureVerified": false,
+    "productionDeployment": {
+      "function": "place-order",
+      "version": 14,
+      "status": "ACTIVE",
+      "jwtVerification": true,
+      "productionCredentialsUnchanged": true,
+      "deployedSourceChecked": true,
+      "retailerBudgetEnforced": true,
+      "financialOperations": 0
+    },
+    "signedIosBuild": {
+      "id": "3ada634e-b702-4186-a4ca-674a39790bef",
+      "status": "FINISHED",
+      "appVersion": "1.0.0",
+      "appBuildVersion": "13",
+      "bundleId": "ai.compreo.fetchit",
+      "url": "https://expo.dev/accounts/durick17/projects/fetchit-mobile/builds/3ada634e-b702-4186-a4ca-674a39790bef",
+      "artifactUrl": "https://expo.dev/artifacts/eas/Q9DEFYriXrObB4Q0LQFkJxPDAP82QxepyxKMo3ckqI8.ipa",
+      "localIpa": "/Users/neilduddukuri/Downloads/fetchit-mobile-main/dist/checkout-estimate-build-13/FetchIt-1.0.0-13.ipa",
+      "ipaSha256": "79c59c06e5005a03512687b60b4479b311ac8a6e6de78f6ee2f68239cd75e4d0",
+      "signatureVerified": true,
+      "appAttestEnvironment": "production",
+      "estimateDisclosureVerified": true,
+      "oldMaximumPromiseAbsent": true,
+      "testFlightUploaded": false
+    },
+    "sourceDigests": {
+      "src/services/checkoutPricing.ts": "ec46678a2727198251335b2aa7320aad62cc2e56ffdd028901f3f7b6e1a4e797",
+      "src/services/orderService.ts": "60d6d3699c55bd708715e7e6d14b4604e219f18701eb82f6fdfa2c8e34ab8b67",
+      "src/app/(app)/checkout-confirmation.tsx": "b923e86d542ec05362e3b2c22b785f9aa3033cf5409c769c1f2ba3133e6853dd",
+      "supabase/functions/place-order/index.ts": "50924c6c406e9b1f10b2a4513dc2ee7e2417e7007429d8a436c7cbabce3666f6",
+      "supabase/functions/_shared/checkout-pricing.ts": "0b925caa087299a08db353ef3b378a4a865aa82f2f67a835bcec19d64f3bc514",
+      "supabase/functions/_shared/order-status.ts": "2d5e533732da233914c0da2ff70ea04e39ab960ecef2f98bcfc8a85ae023f961"
+    },
+    "productionRuntimePreflight": {
+      "action": "quote",
+      "identity": "anonymous",
+      "httpStatus": 401,
+      "code": "unauthorized",
+      "productionLiveModesPassed": true,
+      "financialOperations": 0
+    },
+    "productionCheckoutEnabled": true,
+    "requiredClientBuild": "1.0.0 (13)",
+    "distributionStatus": "Signed IPA prepared; not submitted to TestFlight"
+  }
+}

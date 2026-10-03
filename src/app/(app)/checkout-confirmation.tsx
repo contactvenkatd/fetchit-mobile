@@ -17,7 +17,7 @@ import {
   type PlacedOrder,
 } from '@/services/orderService';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
-import { reviewCheckoutPrice, formatKnownPrice, hasApprovedMaximum, maximumApprovalText, parseRetailerBudget, formatUsdCents } from '@/services/checkoutPricing';
+import { reviewCheckoutPrice, formatKnownPrice, hasApprovedEstimate, estimateApprovalText, parseRetailerBudget, formatUsdCents } from '@/services/checkoutPricing';
 
 const param = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? value[0] ?? '' : value ?? '';
@@ -52,7 +52,7 @@ export default function CheckoutConfirmationScreen() {
     Number.isSafeInteger(unitPriceCents) &&
     unitPriceCents > 0 &&
     Number.isSafeInteger(quantity) && quantity >= 1 &&
-    quantity <= 100 && pricing.itemSubtotalCents !== null;
+    quantity <= 100 && pricing.itemSubtotalCents !== null && pricing.currency === 'USD';
 
   const idempotencyKey = useRef(Crypto.randomUUID()).current;
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -73,9 +73,9 @@ export default function CheckoutConfirmationScreen() {
   const [approvedQuoteId, setApprovedQuoteId] = useState<string | null>(null);
   const [quoteError, setQuoteError] = useState('');
   const [quoteRefresh, setQuoteRefresh] = useState(0);
-  const quoteContext = JSON.stringify([productUrl, quantity, retailerBudgetCents, profile]);
+  const quoteContext = JSON.stringify([productUrl, quantity, totalCents, pricing.currency, retailerBudgetCents, profile]);
   const quote = quoteResult?.context === quoteContext ? quoteResult.quote : null;
-  const canSubmit = hasApprovedMaximum(quote, approvedQuoteId);
+  const canSubmit = hasApprovedEstimate(quote, approvedQuoteId);
 
 
   useEffect(() => {
@@ -108,11 +108,11 @@ export default function CheckoutConfirmationScreen() {
     setApprovedQuoteId(null);
     setQuoteError('');
     if (validProduct && hasAddress && hasCard && retailerBudgetCents && !outcomeUnknown && !submissionLocked.current) {
-      getCheckoutQuote({ productUrl, quantity, displayedPriceCents: retailerBudgetCents,
+      getCheckoutQuote({ productUrl, quantity, itemSubtotalCents: totalCents, currency: 'USD', displayedPriceCents: retailerBudgetCents,
         productName: title, productImage: image, retailer, idempotencyKey }).then(value => {
         if (active) setQuoteResult({ quote: value, context: quoteContext });
       }).catch(() => {
-        if (active) setQuoteError('Checkout is unavailable until Zinc’s fees, currency, and maximum charge rules are verified. No order was submitted.');
+        if (active) setQuoteError('The checkout estimate is unavailable. Refresh it before approving your purchase. No order was submitted.');
       });
     }
     return () => { active = false; };
@@ -123,7 +123,7 @@ export default function CheckoutConfirmationScreen() {
     const timer = setTimeout(() => {
       setQuoteResult(null);
       setApprovedQuoteId(null);
-      setQuoteError('This maximum expired. Refresh it and approve again before placing your order.');
+      setQuoteError('This estimate expired. Refresh it and approve again before placing your order.');
     }, Math.max(0, quote.expiresAt - Date.now()));
     return () => clearTimeout(timer);
   }, [quote]);
@@ -148,7 +148,7 @@ export default function CheckoutConfirmationScreen() {
   }, [placedOrder?.id]);
 
   async function confirmPurchase() {
-    if (!validProduct || !hasAddress || !hasCard || !hasApprovedMaximum(quote, approvedQuoteId) || !retailerBudgetCents || submissionLocked.current) return;
+    if (!validProduct || !hasAddress || !hasCard || !hasApprovedEstimate(quote, approvedQuoteId) || !retailerBudgetCents || submissionLocked.current) return;
     submissionLocked.current = true;
     setError('');
     setSubmitting(true);
@@ -157,7 +157,8 @@ export default function CheckoutConfirmationScreen() {
         productUrl,
         quantity,
         displayedPriceCents: retailerBudgetCents,
-        approval: { quoteId: quote!.id, maximumCents: quote!.maximumCents, currency: quote!.currency },
+        itemSubtotalCents: totalCents, currency: 'USD',
+        approval: { quoteId: quote!.id, mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: quote!.retailerBudgetCents, currency: quote!.currency },
         productName: title,
         productImage: image,
         retailer,
@@ -250,12 +251,13 @@ export default function CheckoutConfirmationScreen() {
         </View>
 
         <View style={styles.detailCard}>
-          <Text style={styles.sectionTitle}>Customer charge</Text>
-          <Text style={styles.detailText}>Shipping: Not quoted</Text>
-          <Text style={styles.detailText}>Tax: Not quoted</Text>
+          <Text style={styles.sectionTitle}>Estimated total</Text>
+          <Text style={styles.detailText}>Estimated shipping: Unknown until retailer checkout</Text>
+          <Text style={styles.detailText}>Estimated tax: Unknown until retailer checkout</Text>
           <Text style={styles.detailText}>FetchIt service fee: 0 · no margin</Text>
-          <Text style={styles.detailText}>Zinc fee: Not confirmed</Text>
-          <Text style={styles.detailText}>Payment processing fee: Not confirmed</Text>
+          <Text style={styles.detailText}>Zinc fee: USD 1.00</Text>
+          <Text style={styles.detailText}>Processing fees: Unknown; applicable rate not confirmed</Text>
+          <Text style={styles.detailText}>Estimated total. Final shipping, taxes, and processing fees may vary.</Text>
           <Text style={styles.detailText}>Retailer spending limit in USD, including shipping and taxes:</Text>
           <TextInput accessibilityLabel="Retailer spending limit in USD" keyboardType="decimal-pad"
             value={budgetInput} placeholder={formatUsdCents(totalCents)}
@@ -264,16 +266,17 @@ export default function CheckoutConfirmationScreen() {
             onChangeText={value => { setApprovedQuoteId(null); setBudgetInput(value); }} />
           {quote ? (
             <>
-              <Text style={styles.detailPrimary}>{maximumApprovalText(quote.maximumCents)}</Text>
-              <Text style={styles.detailText}>Currency: USD. This is a spending ceiling, not a fixed final price.</Text>
-              <Text style={styles.detailText}>Your bank may temporarily hold up to this amount. Zinc captures only the actual total after retailer placement; unused authorization is released. Your bank controls when released funds become available.</Text>
-              <Button label={approvedQuoteId === quote.id ? 'Maximum approved' : 'Approve maximum'}
+              <Text style={styles.detailPrimary}>{estimateApprovalText(quote.knownCostsCents)}</Text>
+              <Text style={styles.detailText}>Known costs include the item subtotal and Zinc fee. Unknown amounts are additional; this estimate is not an all-in limit.</Text>
+              <Text style={styles.detailText}>Retailer budget: USD {formatUsdCents(quote.retailerBudgetCents)} for items, shipping, and taxes only. Zinc and processing fees are additional, so the card hold and final charge may exceed this budget.</Text>
+              <Text style={styles.detailText}>By approving, you authorize Zinc to hold the retailer budget plus Zinc and applicable processing fees, then charge the actual total after retailer placement. Unused authorization is released; your bank controls availability.</Text>
+              <Button label={approvedQuoteId === quote.id ? 'Estimate approved' : 'Approve estimate'}
                 variant="secondary" disabled={submitting || outcomeUnknown || approvedQuoteId === quote.id}
                 onPress={() => { if (quote.expiresAt > Date.now()) setApprovedQuoteId(quote.id); }} />
             </>
-          ) : <Text style={styles.detailPrimary}>{quoteError || 'Maximum authorization unavailable.'}</Text>}
+          ) : <Text style={styles.detailPrimary}>{quoteError || 'Estimate unavailable.'}</Text>}
           {!quote && !submitting && !outcomeUnknown ? (
-            <Button label="Refresh maximum" variant="secondary" onPress={() => setQuoteRefresh(value => value + 1)} />
+            <Button label="Refresh estimate" variant="secondary" onPress={() => setQuoteRefresh(value => value + 1)} />
           ) : null}
         </View>
 
@@ -306,13 +309,13 @@ export default function CheckoutConfirmationScreen() {
         </View>
 
         {!validProduct ? (
-          <Text style={styles.error}>This product does not have valid checkout details.</Text>
+          <Text style={styles.error}>Checkout requires valid product details and confirmed USD pricing.</Text>
         ) : null}
         {error ? <Text style={styles.error}>{error}</Text> : null}
 
         <View style={styles.actions}>
           <Button
-            label={quote ? 'Place Order' : 'Maximum unavailable'}
+            label={quote ? 'Place Order' : 'Estimate unavailable'}
             onPress={confirmPurchase}
             loading={submitting}
             disabled={!validProduct || !hasAddress || !hasCard || !canSubmit || outcomeUnknown}
@@ -323,7 +326,7 @@ export default function CheckoutConfirmationScreen() {
           <Button label="Cancel" variant="ghost" disabled={submitting} onPress={() => router.back()} />
         </View>
         <Text style={styles.disclaimer}>
-          The item subtotal is not the final charge. Approve the maximum above before placing an order. If retailer costs exceed your spending limit, a higher limit requires new approval.
+          Approve the estimate and variable fees above before placing an order. If retailer costs exceed your spending limit, a higher limit requires new approval.
         </Text>
       </ScrollView>
     </Screen>

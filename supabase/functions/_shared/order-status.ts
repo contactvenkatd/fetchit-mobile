@@ -14,7 +14,8 @@ export async function readOrderStatus(zincOrderId: string, key: string) {
   if (!response.ok) throw new Error('zinc_status_unavailable');
   const raw = await response.json();
   if (raw.id !== zincOrderId || !states.has(raw.status)) throw new Error('malformed_order_status');
-  const simulated = raw.connect?.simulated === true;
+  // Test credentials identify a simulation even when Connect metadata is absent.
+  const simulated = key.startsWith('zn_test_') || raw.connect?.simulated === true || raw.payment?.simulated === true;
   const paymentIntentId = paymentId(raw.connect?.payment_intent_id, 'pi_');
   const connectedAccountId = paymentId(raw.connect?.connected_account_id, 'acct_');
   const payment = { status: simulated ? 'simulated' : 'not_verified',
@@ -37,10 +38,13 @@ export async function readOrderStatus(zincOrderId: string, key: string) {
     }
   }
   const items = Array.isArray(raw.items) ? raw.items : [];
+  const tracking = Array.isArray(raw.tracking_numbers) ? raw.tracking_numbers : [];
   return { zincOrderId, zincStatus: raw.status, simulated,
-    retailerStatus: items.length > 0 && items.every((item: { status?: string }) => item.status === 'delivered')
+    retailerStatus: (tracking.length > 0 && tracking.every((shipment: { status?: string }) => shipment.status === 'delivered')) ||
+      (items.length > 0 && items.every((item: { status?: string }) => item.status === 'delivered'))
       ? 'delivered' : raw.status === 'order_placed' ? 'placed' : raw.status === 'order_failed' ? 'failed' : 'unconfirmed',
-    errorCode: machineCode(raw.error?.code ?? raw.code) ?? items.map((item: { error?: { code?: unknown } }) => machineCode(item.error?.code)).find(Boolean) ?? null,
+    errorCode: machineCode(raw.job_result?.error_details?.code ?? raw.job_result?.error_type ?? raw.error?.code ?? raw.code) ??
+      items.map((item: { error?: { code?: unknown }; error_type?: unknown }) => machineCode(item.error?.code ?? item.error_type)).find(Boolean) ?? null,
     connectState: machineCode(raw.connect?.state),
     simulatedChargeCents: simulated ? cents(raw.connect?.final_charge) : null,
     payment };

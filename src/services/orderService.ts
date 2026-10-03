@@ -1,11 +1,16 @@
 import { supabase } from '@/lib/supabase';
 
 export interface CheckoutQuote {
-  id: string; maximumCents: number; retailerBudgetCents: number; currency: "USD"; expiresAt: number;
+  id: string; mode: 'estimate'; revision: string; itemSubtotalCents: number;
+  knownCostsCents: number; shippingCents: null; taxCents: null; zincFeeCents: 100;
+  paymentFeeCents: null; fetchitMarginCents: 0; estimatedTotalCents: null;
+  retailerBudgetCents: number; currency: 'USD'; expiresAt: number;
 }
 
 export interface PlaceOrderInput {
-  approval?: { quoteId: string; maximumCents: number; currency: "USD" };
+  approval?: { quoteId: string; mode: "estimate"; acceptsVariableFees: true; retailerBudgetCents: number; currency: "USD" };
+  itemSubtotalCents: number;
+  currency: "USD";
   productUrl: string;
   quantity: number;
   displayedPriceCents: number;
@@ -33,8 +38,16 @@ export class PlaceOrderError extends Error {
     this.name = 'PlaceOrderError';
     this.code = code;
     this.userMessage = message;
-    this.outcomeUnknown = [
-      'place_order_failed', 'malformed_response', 'zinc_unreachable', 'malformed_zinc_response',
+    // Only established pre-submission/definite rejection codes permit another
+    // tap. Unknown provider codes and already_exists may hide an accepted order.
+    this.outcomeUnknown = ![
+      'unauthorized', 'invalid_json', 'invalid_order', 'method_not_allowed',
+      'service_not_configured', 'zinc_environment_mismatch', 'checkout_pricing_unavailable',
+      'profile_lookup_failed', 'missing_profile', 'missing_payment_method',
+      'incomplete_shipping_address', 'missing_phone_number', 'checkout_approval_required',
+      'payment_environment_mismatch', 'payment_verification_unavailable',
+      'max_price_exceeded', 'card_declined', 'insufficient_funds',
+      'invalid_shipping_address', 'url_unreachable',
     ].includes(code);
   }
 }
@@ -99,10 +112,15 @@ export async function getCheckoutQuote(input: PlaceOrderInput): Promise<Checkout
   if (error) throw await functionError(error);
   const quote = data?.quote as CheckoutQuote | undefined;
   if (!quote || !/^[a-f0-9]{64}$/.test(quote.id) || quote.currency !== 'USD' ||
-      !Number.isSafeInteger(quote.maximumCents) || quote.maximumCents < input.displayedPriceCents ||
+      quote.mode !== 'estimate' || quote.revision !== 'usd-variable-fees-v1' ||
+      input.currency !== 'USD' || quote.itemSubtotalCents !== input.itemSubtotalCents ||
+      !Number.isSafeInteger(quote.knownCostsCents) || quote.knownCostsCents !== input.itemSubtotalCents + 100 ||
+      quote.zincFeeCents !== 100 || quote.fetchitMarginCents !== 0 ||
+      quote.shippingCents !== null || quote.taxCents !== null || quote.paymentFeeCents !== null ||
+      quote.estimatedTotalCents !== null ||
       quote.retailerBudgetCents !== input.displayedPriceCents ||
       !Number.isSafeInteger(quote.expiresAt) || quote.expiresAt <= Date.now()) {
-    throw new PlaceOrderError('checkout_pricing_unavailable', 'The maximum authorization could not be verified. No order was submitted.');
+    throw new PlaceOrderError('checkout_pricing_unavailable', 'The checkout estimate could not be verified. No order was submitted.');
   }
   return quote;
 }

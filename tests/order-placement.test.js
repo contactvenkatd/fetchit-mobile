@@ -33,9 +33,9 @@ function screen(placeOrder, pricingReady = true, approved = true) {
   const context = {
     validProduct: true, hasAddress: true, hasCard: true, pricing: { canSubmit: pricingReady },
     submitting: false, submissionLocked: { current: false },
-    quote: pricingReady ? { id: "a".repeat(64), maximumCents: 1100, currency: "USD", expiresAt: Date.now() + 100000 } : null,
+    quote: pricingReady ? { id: "a".repeat(64), mode: "estimate", knownCostsCents: 1100, retailerBudgetCents: 1000, currency: "USD", expiresAt: Date.now() + 100000 } : null,
     approvedQuoteId: approved ? "a".repeat(64) : null, retailerBudgetCents: 1000,
-    hasApprovedMaximum: load("src/services/checkoutPricing.ts", { exports: {} }).exports.hasApprovedMaximum,
+    hasApprovedEstimate: load("src/services/checkoutPricing.ts", { exports: {} }).exports.hasApprovedEstimate,
     setApprovedQuoteId(value) { context.approvedQuoteId = value; },
     setQuoteResult() { context.quote = null; }, setQuoteRefresh() {},
     productUrl: 'https://retailer.example/item', quantity: 1, totalCents: 1000,
@@ -113,7 +113,7 @@ test('transport failure and malformed success are uncertain, not proof the purch
   }
 });
 
-function backend({ persistFails = false, zincStatus = 201, zincKey = "zn_live_fixture", simulated = false, production = false, pricingSupported = true, expireWhileVerifying = false } = {}) {
+function backend({ persistFails = false, zincStatus = 201, zincKey = "zn_live_fixture", simulated = false, production = false, pricingSupported = true, expireWhileVerifying = false, stripeLive = true } = {}) {
   let handler;
   let issuedQuote;
   const calls = { zinc: 0, inserts: 0, stripeWrites: 0 };
@@ -142,10 +142,9 @@ function backend({ persistFails = false, zincStatus = 201, zincKey = "zn_live_fi
   const context = {
     Response, URL, AbortSignal, console: { error() {} },
     Deno: { env: { get: name => name === 'ZINC_API_KEY' ? zincKey : name === 'SUPABASE_URL' ? (production ? 'https://fpphpncruohjlppqhfep.supabase.co' : 'https://fixture.example') : 'fixture' }, serve: fn => { handler = fn; } },
-    connectPricingSupported: () => pricingSupported,
-    createCheckoutQuote: async () => { issuedQuote = pricingSupported ? { id: 'a'.repeat(64), maximumCents: 1100, retailerBudgetCents: 1000, currency: 'USD', expiresAt: Date.now() + 100000 } : null; return issuedQuote; },
+    createCheckoutQuote: async () => { issuedQuote = pricingSupported ? { id: 'a'.repeat(64), mode: "estimate", knownCostsCents: 1100, retailerBudgetCents: 1000, currency: 'USD', expiresAt: Date.now() + 100000 } : null; return issuedQuote; },
     approvesQuote: load('supabase/functions/_shared/checkout-pricing.ts', { exports: {} }).exports.approvesQuote,
-    createClient: () => client, stripeIsLive: () => true,
+    createClient: () => client, stripeIsLive: () => stripeLive,
     paymentStripe: () => ({
       customers: { retrieve: async () => { if (expireWhileVerifying) issuedQuote.expiresAt = 0; return { livemode: true, metadata: { supabase_uid: 'user_fixture' } }; } },
       paymentMethods: { retrieve: async () => ({ livemode: true, customer: 'cus_fixture' }) },
@@ -154,7 +153,7 @@ function backend({ persistFails = false, zincStatus = 201, zincKey = "zn_live_fi
     fetch: async (url, options) => {
       calls.zinc++;
       assert.equal(url, 'https://api.zinc.com/orders');
-      assert.equal(JSON.parse(options.body).max_price, 1000); // Never charge the approved 1100 as goods.
+      assert.equal(JSON.parse(options.body).max_price, 1000); // Zinc/processing fees must not enter the retailer budget.
       assert.equal(JSON.parse(options.body).payment.margin.value, 0);
       assert.equal(JSON.parse(options.body).idempotency_key, '00000000-0000-4000-8000-000000000000');
       return Response.json(zincStatus === 201 ? { id: 'zinc_fixture', status: 'pending', connect: { simulated } } : { error: { code: 'fixture_rejected', message: 'Rejected' } }, { status: zincStatus });
@@ -163,9 +162,9 @@ function backend({ persistFails = false, zincStatus = 201, zincKey = "zn_live_fi
   vm.createContext(context);
   vm.runInContext(ts.transpileModule(text, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, context);
   const run = (overrides = {}) => handler(new Request('https://fixture.example', { method: 'POST', headers: { Authorization: 'Bearer fixture' }, body: JSON.stringify({
-    productUrl: 'https://retailer.example/item', quantity: 1, displayedPriceCents: 1000,
+    productUrl: 'https://retailer.example/item', quantity: 1, itemSubtotalCents: 1000, currency: "USD", displayedPriceCents: 1000,
     productName: 'Fixture', productImage: null, retailer: 'Fixture', idempotencyKey: '00000000-0000-4000-8000-000000000000',
-    approval: { quoteId: 'a'.repeat(64), maximumCents: 1100, currency: 'USD' }, ...overrides,
+    approval: { quoteId: 'a'.repeat(64), mode: "estimate", acceptsVariableFees: true, retailerBudgetCents: 1000, currency: 'USD' }, ...overrides,
   }) }));
   return { run, calls };
 }
@@ -217,13 +216,13 @@ for (const persistFails of [false, true]) {
 }
 
 
-test('unknown complete customer price prevents any frontend submission, including duplicate taps', async () => {
+test('missing estimate prevents any frontend submission, including duplicate taps', async () => {
   const client = screen(() => { throw new Error('Must not submit'); }, false);
   await client.run(); await client.run();
   assert.equal(client.calls.requests.length, 0);
 });
 
-test('production pricing gate protects existing clients before Zinc, database inserts or charges', async () => {
+test('unavailable estimate protects existing clients before Zinc, database inserts or charges', async () => {
   const api = backend({ production: true, pricingSupported: false });
   const response = await api.run();
   assert.equal(response.status, 503);
@@ -236,7 +235,7 @@ test('pricing preserves unknown fees and validates quantity, currency and safe i
   const value = pricing.reviewCheckoutPrice(537, 3, 'USD');
   assert.equal(value.itemSubtotalCents, 1611);
   assert.equal(pricing.formatKnownPrice(value.itemSubtotalCents, value.currency), 'USD 16.11');
-  for (const field of ['shippingCents','taxCents','zincFeeCents','paymentFeeCents','approvedMaximumCents']) assert.equal(value[field], null);
+  for (const field of ['shippingCents','taxCents','paymentFeeCents','estimatedTotalCents']) assert.equal(value[field], null);
   assert.equal(value.fetchitMarginCents, 0);
   assert.equal(value.canSubmit, false);
   for (const quantity of [0, -1, 1.5, 101, NaN]) assert.equal(pricing.reviewCheckoutPrice(537, quantity, 'USD').itemSubtotalCents, null);
@@ -244,11 +243,11 @@ test('pricing preserves unknown fees and validates quantity, currency and safe i
   assert.equal(pricing.reviewCheckoutPrice(537, 1, '').currency, null);
   assert.match(pricing.formatKnownPrice(537, null), /currency unconfirmed/);
   assert.equal(pricing.formatKnownPrice(537, 'JPY'), '537 minor units · JPY');
-  assert.equal(load('supabase/functions/_shared/checkout-pricing.ts', { exports: {} }).exports.connectPricingSupported(), false);
+  assert.equal(value.zincFeeCents, 100);
 });
 
 
-test('a displayed maximum without explicit approval cannot submit', async () => {
+test('a displayed estimate without explicit approval cannot submit', async () => {
   const client = screen(() => { throw new Error('Must not submit'); }, true, false);
   await client.run(); await client.run();
   assert.equal(client.calls.requests.length, 0);
@@ -258,11 +257,16 @@ test('quote-only request cannot submit Zinc or write an order/payment', async ()
   const api = backend();
   const response = await api.run({ action: 'quote', approval: undefined });
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).quote.maximumCents, 1100);
+  assert.equal((await response.json()).quote.knownCostsCents, 1100);
   assert.deepEqual(api.calls, { zinc: 0, inserts: 0, stripeWrites: 0 });
 });
 
-for (const approval of [undefined, {}, { quoteId: 'a'.repeat(64), maximumCents: 1000, currency: 'USD' }, { quoteId: 'a'.repeat(64), maximumCents: 1200, currency: 'USD' }, { quoteId: 'b'.repeat(64), maximumCents: 1100, currency: 'USD' }, { quoteId: 'a'.repeat(64), maximumCents: 1100, currency: 'EUR' }]) {
+for (const approval of [undefined, {},
+  { quoteId: 'a'.repeat(64), maximumCents: 1100, currency: 'USD' },
+  { quoteId: 'a'.repeat(64), mode: 'estimate', acceptsVariableFees: false, retailerBudgetCents: 1000, currency: 'USD' },
+  { quoteId: 'a'.repeat(64), mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: 1001, currency: 'USD' },
+  { quoteId: 'b'.repeat(64), mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: 1000, currency: 'USD' },
+  { quoteId: 'a'.repeat(64), mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: 1000, currency: 'EUR' }]) {
   test(`server rejects missing, changed or forged approval: ${JSON.stringify(approval)}`, async () => {
     const api = backend();
     const response = await api.run({ approval });
@@ -272,46 +276,48 @@ for (const approval of [undefined, {}, { quoteId: 'a'.repeat(64), maximumCents: 
   });
 }
 
-test('real quote logic binds context, fee revision and validity; unknown pricing never produces a maximum', async () => {
+test('real estimate binds all context and validity without inventing unknown fees', async () => {
   const module = load('supabase/functions/_shared/checkout-pricing.ts', { exports: {}, TextEncoder, crypto: require('node:crypto').webcrypto }).exports;
-  const context = { userId: 'user_fixture', productUrl: 'https://retailer.example/item', quantity: 1, retailerBudgetCents: 1000, profile: { payment: 'pm_fixture', address: 'fixture' } };
-  // Deliberately fictional adapter used only to exercise approval enforcement.
-  // No public example fee schedule is installed as a production adapter.
-  const policy = { revision: 'test-only', currency: 'USD', maximumCustomerCharge: budget => budget + 100 };
-  assert.equal(await module.createCheckoutQuote(context), null);
-  assert.equal(module.connectPricingSupported(), false);
+  const context = { userId: 'user_fixture', productUrl: 'https://retailer.example/item', quantity: 1,
+    itemSubtotalCents: 1000, currency: 'USD', retailerBudgetCents: 1200,
+    profile: { payment: 'pm_fixture', address: 'fixture' } };
   const now = 600000;
-  const quote = await module.createCheckoutQuote(context, policy, now);
-  const approval = { quoteId: quote.id, maximumCents: quote.maximumCents, currency: quote.currency };
+  const quote = await module.createCheckoutQuote(context, now);
+  assert.equal(quote.knownCostsCents, 1100); assert.equal(quote.zincFeeCents, 100);
+  for (const field of ['shippingCents', 'taxCents', 'paymentFeeCents', 'estimatedTotalCents']) assert.equal(quote[field], null);
+  assert.equal(quote.maximumCents, undefined);
+  const approval = { quoteId: quote.id, mode: 'estimate', acceptsVariableFees: true,
+    retailerBudgetCents: 1200, currency: quote.currency };
   assert.equal(module.approvesQuote(approval, quote, now), true);
   assert.equal(module.approvesQuote(approval, quote, quote.expiresAt), false);
-  for (const changed of [{ userId: 'another' }, { quantity: 2 }, { productUrl: 'https://retailer.example/other' }, { retailerBudgetCents: 1001 }, { profile: { payment: 'pm_other', address: 'fixture' } }, { profile: { payment: 'pm_fixture', address: 'changed' } }]) {
-    const next = await module.createCheckoutQuote({ ...context, ...changed }, policy, now);
+  for (const changed of [{ userId: 'another' }, { quantity: 2 }, { itemSubtotalCents: 1001 },
+    { productUrl: 'https://retailer.example/other' }, { retailerBudgetCents: 1201 },
+    { profile: { payment: 'pm_other', address: 'fixture' } }, { profile: { payment: 'pm_fixture', address: 'changed' } }]) {
+    const next = await module.createCheckoutQuote({ ...context, ...changed }, now);
     assert.equal(module.approvesQuote(approval, next, now), false);
   }
-  const revised = await module.createCheckoutQuote(context, { ...policy, revision: 'changed-fee-policy' }, now);
-  assert.equal(module.approvesQuote(approval, revised, now), false);
-  const expired = await module.createCheckoutQuote(context, policy, quote.expiresAt);
+  const expired = await module.createCheckoutQuote(context, quote.expiresAt);
   assert.equal(module.approvesQuote(approval, expired, quote.expiresAt), false);
-  for (const amount of [999, 1000.5, Number.MAX_SAFE_INTEGER + 1, NaN]) {
-    assert.equal(await module.createCheckoutQuote(context, { ...policy, maximumCustomerCharge: () => amount }, now), null);
+  for (const change of [{ currency: 'EUR' }, { currency: undefined }, { itemSubtotalCents: Number.MAX_SAFE_INTEGER },
+    { itemSubtotalCents: 1000.5 }, { retailerBudgetCents: 0 }, { quantity: 101 }]) {
+    assert.equal(await module.createCheckoutQuote({ ...context, ...change }, now), null);
   }
 });
 
-test('approval copy separates the ceiling from actual charge; budget parsing does not round hidden fractions', () => {
+test('approval copy discloses additional unknown fees; budget parsing does not round hidden fractions', () => {
   const api = load('src/services/checkoutPricing.ts', { exports: {} }).exports;
-  assert.equal(api.maximumApprovalText(1234), 'Authorize up to $12.34, including shipping, taxes, and fees. Your final charge may be lower.');
+  assert.equal(api.estimateApprovalText(1234), 'Estimated total: USD 12.34 + shipping, taxes, and processing fees (amounts unknown).');
   assert.equal(api.parseRetailerBudget('12.34'), 1234);
   assert.equal(api.formatUsdCents(Number.MAX_SAFE_INTEGER), '90071992547409.91');
   assert.equal(api.formatUsdCents(1), '0.01');
   for (const value of ['12.345', '-1', 'NaN', '', '0', '9007199254740992']) assert.equal(api.parseRetailerBudget(value), null);
-  assert.equal(api.hasApprovedMaximum({ id: 'fixture', maximumCents: 1234, currency: 'USD', expiresAt: 100 }, 'fixture', 100), false);
+  assert.equal(api.hasApprovedEstimate({ id: 'fixture', mode: "estimate", knownCostsCents: 1234, retailerBudgetCents: 1000, currency: 'USD', expiresAt: 100 }, 'fixture', 100), false);
 });
 
 
 for (const code of ['checkout_approval_required', 'max_price_exceeded']) {
-  test(`${code}: a changed/insufficient ceiling clears consent and does not automatically resubmit`, async () => {
-    const client = screen(async (_, ErrorType) => { throw new ErrorType(code, 'Review the maximum.'); });
+  test(`${code}: a changed/insufficient budget clears consent and does not automatically resubmit`, async () => {
+    const client = screen(async (_, ErrorType) => { throw new ErrorType(code, 'Review the estimate.'); });
     await client.run(); await client.run();
     assert.equal(client.calls.requests.length, 1);
     assert.equal(client.calls.unknown[0], false);
@@ -319,9 +325,15 @@ for (const code of ['checkout_approval_required', 'max_price_exceeded']) {
 }
 
 test('client rejects malformed, expired, wrong-currency and wrong-budget server quotes', async () => {
-  const valid = { id: 'a'.repeat(64), maximumCents: 1100, retailerBudgetCents: 1000, currency: 'USD', expiresAt: Date.now() + 100000 };
-  const input = { displayedPriceCents: 1000 };
-  for (const change of [{ id: 'invalid' }, { maximumCents: 999 }, { maximumCents: 1100.5 }, { currency: 'EUR' }, { retailerBudgetCents: 900 }, { expiresAt: Date.now() - 1 }]) {
+  const valid = { id: 'a'.repeat(64), mode: 'estimate', revision: 'usd-variable-fees-v1',
+    itemSubtotalCents: 1000, knownCostsCents: 1100, retailerBudgetCents: 1000, currency: 'USD',
+    zincFeeCents: 100, fetchitMarginCents: 0, shippingCents: null, taxCents: null,
+    paymentFeeCents: null, estimatedTotalCents: null, expiresAt: Date.now() + 100000 };
+  const input = { displayedPriceCents: 1000, itemSubtotalCents: 1000, currency: 'USD' };
+  for (const change of [{ id: 'invalid' }, { mode: 'maximum' }, { knownCostsCents: 999 },
+    { knownCostsCents: 1100.5 }, { itemSubtotalCents: 999 }, { paymentFeeCents: 30 },
+    { zincFeeCents: 101 }, { fetchitMarginCents: 1 }, { currency: 'EUR' },
+    { retailerBudgetCents: 900 }, { expiresAt: Date.now() - 1 }, { revision: 'old' }]) {
     const api = service(async () => ({ data: { quote: { ...valid, ...change } } }));
     await assert.rejects(api.getCheckoutQuote(input), error => error.code === 'checkout_pricing_unavailable');
   }
@@ -340,3 +352,13 @@ test('approval expiring during Stripe reference reads stops before Zinc or any w
   assert.equal((await response.json()).error.code, 'checkout_approval_required');
   assert.deepEqual(api.calls, { zinc: 0, inserts: 0, stripeWrites: 0 });
 });
+
+for (const [zincKey, stripeLive] of [['zn_test_fixture', true], ['zn_live_fixture', false]]) {
+  test(`mixed provider modes are rejected before any submission: ${zincKey}/${stripeLive}`, async () => {
+    const api = backend({ zincKey, stripeLive });
+    const response = await api.run();
+    assert.equal(response.status, 503);
+    assert.equal((await response.json()).error.code, 'payment_environment_mismatch');
+    assert.deepEqual(api.calls, { zinc: 0, inserts: 0, stripeWrites: 0 });
+  });
+}

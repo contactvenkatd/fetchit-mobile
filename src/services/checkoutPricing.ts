@@ -5,9 +5,9 @@ export function reviewCheckoutPrice(unitCents: number, quantity: number, currenc
   return {
     itemSubtotalCents: valid ? unitCents * quantity : null,
     currency: currency && /^[A-Z]{3}$/.test(currency) ? currency : null,
-    shippingCents: null, taxCents: null, zincFeeCents: null, paymentFeeCents: null,
+    shippingCents: null, taxCents: null, zincFeeCents: currency === 'USD' ? 100 : null, paymentFeeCents: null,
     fetchitMarginCents: 0,
-    approvedMaximumCents: null,
+    estimatedTotalCents: null,
     canSubmit: false,
   };
 }
@@ -28,13 +28,14 @@ export function parseRetailerBudget(value: string): number | null {
   return Number.isSafeInteger(cents) && cents > 0 ? cents : null;
 }
 
-export function hasApprovedMaximum(
-  quote: { id: string; maximumCents: number; currency: string; expiresAt: number } | null,
+export function hasApprovedEstimate(
+  quote: { id: string; mode: string; knownCostsCents: number; retailerBudgetCents: number; currency: string; expiresAt: number } | null,
   approvedId: string | null,
   now = Date.now(),
 ): boolean {
   return Boolean(quote && quote.id === approvedId && quote.currency === 'USD' &&
-    Number.isSafeInteger(quote.maximumCents) && quote.maximumCents > 0 && now < quote.expiresAt);
+    quote.mode === 'estimate' && Number.isSafeInteger(quote.knownCostsCents) && quote.knownCostsCents > 0 &&
+    Number.isSafeInteger(quote.retailerBudgetCents) && quote.retailerBudgetCents > 0 && now < quote.expiresAt);
 }
 
 export function formatUsdCents(cents: number): string {
@@ -43,6 +44,6 @@ export function formatUsdCents(cents: number): string {
   return `${amount / 100n}.${String(amount % 100n).padStart(2, '0')}`;
 }
 
-export function maximumApprovalText(maximumCents: number): string {
-  return `Authorize up to $${formatUsdCents(maximumCents)}, including shipping, taxes, and fees. Your final charge may be lower.`;
+export function estimateApprovalText(knownCostsCents: number): string {
+  return `Estimated total: USD ${formatUsdCents(knownCostsCents)} + shipping, taxes, and processing fees (amounts unknown).`;
 }

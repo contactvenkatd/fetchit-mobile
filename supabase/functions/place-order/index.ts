@@ -1,6 +1,6 @@
 import { readOrderStatus } from '../_shared/order-status.ts';
 import { paymentStripe, stripeIsLive } from '../_shared/stripe-backend.ts';
-import { connectPricingSupported, createCheckoutQuote, approvesQuote } from '../_shared/checkout-pricing.ts';
+import { createCheckoutQuote, approvesQuote } from '../_shared/checkout-pricing.ts';
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const ZINC_ORDERS_URL = "https://api.zinc.com/orders";
@@ -27,6 +27,8 @@ interface PlaceOrderRequest {
   productUrl: string;
   quantity: number;
   displayedPriceCents: number;
+  itemSubtotalCents: number;
+  currency: "USD";
   productName: string;
   productImage: string | null;
   retailer: string;
@@ -62,6 +64,9 @@ function isPlaceOrderRequest(value: unknown): value is PlaceOrderRequest {
     (body.quantity as number) <= 100 &&
     Number.isSafeInteger(body.displayedPriceCents) &&
     (body.displayedPriceCents as number) > 0 &&
+    body.currency === "USD" &&
+    Number.isSafeInteger(body.itemSubtotalCents) && (body.itemSubtotalCents as number) > 0 &&
+    Number.isSafeInteger((body.itemSubtotalCents as number) + 100) &&
     typeof body.productName === "string" &&
     body.productName.trim().length > 0 &&
     body.productName.length <= 1000 &&
@@ -143,8 +148,9 @@ Deno.serve(async (req) => {
   if (production && !zincApiKey.startsWith('zn_live_')) {
     return failure('zinc_environment_mismatch', 'Checkout is unavailable because the retailer integration is not configured for live purchases. Contact support.', 503);
   }
-  if (!statusRequest && production && !connectPricingSupported()) {
-    return failure('checkout_pricing_unavailable', 'Checkout is unavailable until the complete customer charge and its maximum are confirmed. No order was submitted.', 503);
+  if (!statusRequest && (!/^zn_(live|test)_/.test(zincApiKey) ||
+      zincApiKey.startsWith('zn_live_') !== stripeIsLive())) {
+    return failure('payment_environment_mismatch', 'Retailer and payment test/live modes must match. No order was submitted.', 503);
   }
 
   const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -213,15 +219,16 @@ Deno.serve(async (req) => {
   const quote = await createCheckoutQuote({
     userId: user.id, productUrl: orderBody.productUrl, quantity: orderBody.quantity,
     retailerBudgetCents: orderBody.displayedPriceCents,
+    itemSubtotalCents: orderBody.itemSubtotalCents, currency: orderBody.currency,
     profile: { customer, paymentMethod, firstName: name.firstName, lastName: name.lastName,
       addressLine1, addressLine2: String(profile.address_line2 ?? '').trim(), city,
       state: String(profile.state ?? '').trim(), postalCode, country, phone },
   });
   if (!quote) return failure('checkout_pricing_unavailable',
-    'The maximum authorization cannot be verified. No order was submitted.', 503);
+    'The checkout estimate cannot be verified. No order was submitted.', 503);
   if (orderBody.action === 'quote') return json({ quote });
   if (!approvesQuote(orderBody.approval, quote)) return failure('checkout_approval_required',
-    'The checkout maximum or details changed. Review and approve the updated maximum before placing your order.', 409);
+    'The checkout estimate or details changed. Review and approve the updated estimate before placing your order.', 409);
 
   // Validate references against the backend's Stripe account before Zinc can
   // submit an order. Stale test cards require fresh live card collection.
@@ -257,7 +264,7 @@ Deno.serve(async (req) => {
       phone_number: phone,
       country,
     },
-    // Retailer ceiling only; never send/capture the approved customer maximum as goods cost.
+    // Retailer costs only. Zinc and processing fees are additional, as approved.
     max_price: quote.retailerBudgetCents,
     idempotency_key: orderBody.idempotencyKey,
     payment: {
@@ -271,7 +278,7 @@ Deno.serve(async (req) => {
   // Stripe reference verification can outlast the approval window. Recheck
   // immediately before the first potentially financial upstream request.
   if (!approvesQuote(orderBody.approval, quote)) return failure('checkout_approval_required',
-    'This maximum expired. Review and approve a fresh maximum before placing your order.', 409);
+    'This estimate expired. Review and approve a fresh estimate before placing your order.', 409);
 
   let zincResponse: Response;
   let zincOrder: ZincOrderResponse;
@@ -296,6 +303,9 @@ Deno.serve(async (req) => {
   }
 
   if (!zincResponse.ok) {
+    if (zincResponse.status >= 500 || zincResponse.status === 408) {
+      return failure('zinc_unreachable', 'The retailer outcome is unconfirmed. Check order history before submitting another purchase.', 502);
+    }
     const upstream = zincError(zincOrder, zincResponse.status);
     const status = zincResponse.status === 402 ? 402 : zincResponse.status < 500 ? 409 : 502;
     return failure(upstream.code, upstream.message, status);
