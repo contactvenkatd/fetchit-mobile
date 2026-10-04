@@ -7,6 +7,7 @@ export interface ProductResult {
   price: number | null;
   /** Unknown unless explicitly supplied by the search response. */
   currency?: string | null;
+  listingProof?: string | null;
   image: string | null;
   retailer: string;
   /** Currently the orderable retailer URL returned by Zinc. */

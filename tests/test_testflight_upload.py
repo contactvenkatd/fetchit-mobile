@@ -17,6 +17,13 @@ upload = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(upload)
 
 
+CONFIRMED_BUILD_13 = """IMPORT-STATUS: VALID
+BUILD-STATUS: BETA_INTERNAL_TESTING
+IS-ON-APP-STORE-CONNECT: true
+Delivery UUID: 3941a703-6cc4-4596-939f-e5823f399f92
+"""
+
+
 class UploadTests(unittest.TestCase):
     def test_trim_without_format_assumptions(self):
         for value in ['AAAA-b2B2-cCcC-9d9D', 'Mixed123!different-length', 'aaaa-bbbb-cccc-dddd']:
@@ -97,12 +104,58 @@ No errors uploading archive at '/tmp/fixture.ipa'.
                     with self.assertRaises(upload.UploadError):
                         upload.verify_artifact(path)
 
-    def test_status_has_all_required_flags(self):
-        args = upload.status_arguments('11111111-2222-3333-4444-555555555555')
-        for flag, value in [('--delivery-id', '11111111-2222-3333-4444-555555555555'),
-                            ('--platform', 'ios'), ('--bundle-short-version-string', '1.0.0'),
-                            ('--bundle-version', upload.BUILD_NUMBER)]:
-            self.assertEqual(args[args.index(flag) + 1], value)
+    def test_delivery_status_uses_no_redundant_app_version_selectors(self):
+        delivery = '3941a703-6cc4-4596-939f-e5823f399f92'
+        self.assertEqual(upload.status_arguments(delivery),
+                         ['--build-status', '--delivery-id', delivery, '--wait'])
+
+    def test_confirmed_build_13_import_and_internal_testing(self):
+        result = upload.parse_apple_output(CONFIRMED_BUILD_13)
+        self.assertEqual(result['delivery_id'], '3941a703-6cc4-4596-939f-e5823f399f92')
+        self.assertEqual(result['import_status'], 'VALID')
+        self.assertEqual(result['build_status'], 'BETA_INTERNAL_TESTING')
+        self.assertIs(result['on_connect'], True)
+        self.assertTrue(upload.imported(result))
+        self.assertTrue(upload.internal_testing_available(result))
+        self.assertFalse(upload.processing(result))
+        for change in [{'returncode': 1}, {'failed': True}, {'on_connect': False},
+                       {'import_status': 'PROCESSING'}, {'build_status': 'FAILED'}]:
+            changed = dict(result, **change)
+            if change.get('build_status') == 'FAILED':
+                changed = upload.parse_apple_output(CONFIRMED_BUILD_13.replace('BETA_INTERNAL_TESTING', 'FAILED'))
+            self.assertFalse(upload.imported(changed))
+            self.assertFalse(upload.internal_testing_available(changed))
+
+    def test_existing_confirmed_delivery_reports_success_without_upload(self):
+        output, errors = io.StringIO(), io.StringIO()
+        with patch.object(upload, 'BUILD_NUMBER', '13'), patch.object(upload, 'read_password', return_value='Fixture'), patch.object(upload, 'read_receipt', return_value='3941a703-6cc4-4596-939f-e5823f399f92'), patch.object(upload, 'fetch_artifact') as fetch, patch.object(upload, 'run_apple', return_value=upload.parse_apple_output(CONFIRMED_BUILD_13)) as apple, contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            self.assertEqual(upload.main(), 0)
+            fetch.assert_not_called()
+            self.assertEqual(apple.call_count, 1)
+            self.assertEqual(apple.call_args.args[0], upload.status_arguments('3941a703-6cc4-4596-939f-e5823f399f92'))
+        self.assertIn('FetchIt 1.0.0 (13)', output.getvalue())
+        self.assertIn('available for internal TestFlight testing', output.getvalue())
+        self.assertEqual(errors.getvalue(), '')
+
+    def test_processing_failure_and_unknown_have_distinct_messages_and_exits(self):
+        cases = [
+            ('IMPORT-STATUS: PROCESSING\nBUILD-STATUS: PROCESSING\nIS-ON-APP-STORE-CONNECT: false', 2, 'processing is still in progress', False),
+            ('IMPORT-STATUS: VALID\nBUILD-STATUS: PROCESSING\nIS-ON-APP-STORE-CONNECT: true', 2, 'processing is still in progress', False),
+            ('IMPORT-STATUS: FAILED', 1, 'Apple import failed.', True),
+            ('IMPORT-STATUS: VALID\nBUILD-STATUS: UNKNOWN\nIS-ON-APP-STORE-CONNECT: true', 2, 'not yet been verified', False),
+        ]
+        for text, expected_exit, message, failed in cases:
+            with self.subTest(text=text):
+                result = upload.parse_apple_output(text)
+                self.assertEqual(result['failed'], failed)
+                output, errors = io.StringIO(), io.StringIO()
+                with patch.object(upload, 'BUILD_NUMBER', '13'), patch.object(upload, 'read_password', return_value='Fixture'), patch.object(upload, 'read_receipt', return_value='3941a703-6cc4-4596-939f-e5823f399f92'), patch.object(upload, 'fetch_artifact') as fetch, patch.object(upload, 'run_apple', return_value=result) as apple, contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+                    self.assertEqual(upload.main(), expected_exit)
+                    fetch.assert_not_called()
+                    self.assertEqual(apple.call_count, 1)
+                self.assertIn(message, errors.getvalue() if failed else output.getvalue())
+                if not failed:
+                    self.assertEqual(errors.getvalue(), '')
 
     def test_upload_records_delivery_then_checks_status(self):
         delivery = '11111111-2222-3333-4444-555555555555'

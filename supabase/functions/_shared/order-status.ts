@@ -38,11 +38,23 @@ export async function readOrderStatus(zincOrderId: string, key: string) {
     }
   }
   const items = Array.isArray(raw.items) ? raw.items : [];
-  const tracking = Array.isArray(raw.tracking_numbers) ? raw.tracking_numbers : [];
+  const tracking = (Array.isArray(raw.tracking_numbers) ? raw.tracking_numbers : [])
+    .filter((shipment: unknown) => shipment !== null && typeof shipment === 'object')
+    .map((shipment: Record<string, unknown>) => ({
+      carrier: machineCode(shipment.carrier),
+      trackingNumber: typeof shipment.tracking_number === 'string' && /^[A-Za-z0-9-]{1,100}$/.test(shipment.tracking_number) ? shipment.tracking_number : null,
+      status: ['pending', 'in_transit', 'delivered'].includes(String(shipment.status)) ? shipment.status as string : 'unconfirmed',
+      estimatedDeliveryDate: typeof shipment.estimated_delivery_date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(shipment.estimated_delivery_date) ? shipment.estimated_delivery_date : null,
+    }));
+  const retailerStatus = raw.status === 'order_failed' ? 'failed' :
+    ['cancelled', 'cancelled_by_retailer'].includes(raw.status) ? 'cancelled' :
+    (tracking.length > 0 && tracking.every((shipment: { status: string }) => shipment.status === 'delivered')) ||
+      (tracking.length === 0 && items.length > 0 && items.every((item: { status?: string }) => item?.status === 'delivered'))
+      ? 'delivered' : tracking.some((shipment: { status: string }) => shipment.status === 'in_transit') ? 'in_transit' :
+      tracking.length > 0 ? 'shipping_pending' : items.some((item: { status?: string }) => item?.status === 'shipped') ? 'shipped' :
+      raw.status === 'order_placed' ? 'placed' : 'unconfirmed';
   return { zincOrderId, zincStatus: raw.status, simulated,
-    retailerStatus: (tracking.length > 0 && tracking.every((shipment: { status?: string }) => shipment.status === 'delivered')) ||
-      (items.length > 0 && items.every((item: { status?: string }) => item.status === 'delivered'))
-      ? 'delivered' : raw.status === 'order_placed' ? 'placed' : raw.status === 'order_failed' ? 'failed' : 'unconfirmed',
+    retailerStatus, tracking,
     errorCode: machineCode(raw.job_result?.error_details?.code ?? raw.job_result?.error_type ?? raw.error?.code ?? raw.code) ??
       items.map((item: { error?: { code?: unknown }; error_type?: unknown }) => machineCode(item.error?.code ?? item.error_type)).find(Boolean) ?? null,
     connectState: machineCode(raw.connect?.state),

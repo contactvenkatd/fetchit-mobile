@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const { backend, mount } = require('./harness.cjs');
-const { sandboxKey, sandboxFetch, stripeComponents } = require('./providers.cjs');
+const { sandboxKey, sandboxFetch } = require('./providers.cjs');
+const fs = require('node:fs');
+const path = require('node:path');
 (async () => {
   let stage = 'sandbox key';
   const report = { completeCheckoutVerified: false, customerCeilingVerified: false,
@@ -56,11 +58,12 @@ const { sandboxKey, sandboxFetch, stripeComponents } = require('./providers.cjs'
       location: error.stack?.split('\n').find(line => line.includes('sandbox.cjs:'))?.trim() };
     process.exitCode = 1;
   }
-  const stripeKey = process.env.CHECKOUT_STRIPE_TEST_SECRET_KEY;
-  if (stripeKey) {
-    try { report.stripe = await stripeComponents(stripeKey); }
-    catch (error) { report.stripe = `blocked or failed: ${error.code ?? error.cause?.code ?? error.name}`; process.exitCode = 1; }
-  } else { report.stripe = 'blocked: CHECKOUT_STRIPE_TEST_SECRET_KEY absent'; process.exitCode = 1; }
+  // This audit reuses completed evidence; never creates another Stripe intent.
+  const evidence = JSON.parse(fs.readFileSync(path.join(__dirname, '../../docs/checkout-provider-evidence.json'), 'utf8')).stripe;
+  assert.equal(evidence.outcome, 'passed');
+  assert.equal(evidence.livemode, false);
+  report.stripe = { outcome: 'saved evidence reused', scope: evidence.scope, runId: evidence.runId,
+    completedAt: evidence.completedAt, newStripeOperations: 0 };
   console.log(JSON.stringify(report, null, 2));
   // This runner never certifies the full flow: production pricing and Zinc-owned
   // Stripe Connect authorization/capture are outside the provisional sandbox.

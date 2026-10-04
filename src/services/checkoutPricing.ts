@@ -6,7 +6,7 @@ export function reviewCheckoutPrice(unitCents: number, quantity: number, currenc
     itemSubtotalCents: valid ? unitCents * quantity : null,
     currency: currency && /^[A-Z]{3}$/.test(currency) ? currency : null,
     shippingCents: null, taxCents: null, zincFeeCents: currency === 'USD' ? 100 : null, paymentFeeCents: null,
-    fetchitMarginCents: 0,
+    fetchitMarginCents: null,
     estimatedTotalCents: null,
     canSubmit: false,
   };

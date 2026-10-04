@@ -1,3 +1,9 @@
+# Current unresolved facts
+
+The replacement uses a documented flat Connect margin, calculated from the item subtotal only. Processing remains unknown; no exact maximum is promised. Remaining facts are the currency of cross-retailer search results without an explicit code, and fresh read-only confirmation of live Zinc-to-Stripe linkage. See [replacement verification](replacement-checkout-fulfillment-verification.md). Earlier zero-margin maximum questions are historical.
+
+---
+
 # Current estimate release
 
 The customer approved variable-fee estimates instead of a guaranteed maximum.

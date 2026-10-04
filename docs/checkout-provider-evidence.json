@@ -167,5 +167,693 @@
     "productionCheckoutEnabled": true,
     "requiredClientBuild": "1.0.0 (13)",
     "distributionStatus": "Signed IPA prepared; not submitted to TestFlight"
+  },
+  "build13FulfillmentAudit": {
+    "verdict": "Still blocked",
+    "report": "docs/build-13-purchase-fulfillment-verification.md",
+    "offlineBaselinePassed": 57,
+    "fixedSourceOfflinePassed": 67,
+    "realZincSandboxScenariosPassed": 4,
+    "stripeEvidenceReused": true,
+    "newStripeFinancialOperations": 0,
+    "liveFinancialOperations": 0,
+    "newBuildStarted": false,
+    "credentialsUnchanged": true,
+    "clientFixesInBuild13": false,
+    "backend": {
+      "place-order": {
+        "version": 15,
+        "status": "ACTIVE",
+        "verify_jwt": true,
+        "estimateContractPresent": true,
+        "maximumOnlyGuardAbsent": true
+      },
+      "search-products": {
+        "version": 13,
+        "status": "ACTIVE",
+        "verify_jwt": true,
+        "currencyMappingPresent": true
+      },
+      "stripe-readiness": {
+        "version": 18,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      }
+    },
+    "productionReadOnly": {
+      "liveModes": true,
+      "financialOperations": 0,
+      "zinc": {
+        "httpStatus": 200,
+        "userId": 1035,
+        "orderFeeCents": 100
+      },
+      "stripe": {
+        "httpStatus": 200,
+        "accountId": "acct_1Th9uUQg8UTscDty",
+        "chargesEnabled": true,
+        "cardPaymentsActive": true
+      },
+      "zincConnect": {
+        "httpStatus": 404,
+        "connectedAccountId": null,
+        "userId": null,
+        "ready": false
+      }
+    },
+    "stripeReadOnly": {
+      "accountId": "acct_1Th9uUQg8UTscDty",
+      "keyMode": "live",
+      "balanceLiveMode": true,
+      "chargesEnabled": true,
+      "capabilities": {
+        "acss_debit_payments": "active",
+        "affirm_payments": "active",
+        "afterpay_clearpay_payments": "active",
+        "amazon_pay_payments": "active",
+        "bancontact_payments": "active",
+        "blik_payments": "active",
+        "card_payments": "active",
+        "cartes_bancaires_payments": "pending",
+        "cashapp_payments": "active",
+        "eps_payments": "active",
+        "klarna_payments": "active",
+        "link_payments": "active",
+        "mb_way_payments": "active",
+        "pay_by_bank_payments": "active",
+        "pix_payments": "active",
+        "satispay_payments": "active",
+        "scalapay_payments": "inactive",
+        "transfers": "active",
+        "us_bank_account_ach_payments": "active"
+      },
+      "profileAudit": {
+        "profiles": 3,
+        "valid": 1,
+        "missingReferences": 1,
+        "wrongModeOrOwner": 1,
+        "unavailable": 0
+      },
+      "publishableKeyPairing": {
+        "verified": true,
+        "method": "existing_setup_intent_readback"
+      }
+    }
+  },
+  "replacementFeeFlow": {
+    "revision": "usd-service-fee-v2",
+    "feeFormula": "200 + floor((itemSubtotalCents * 35 + 500) / 1000)",
+    "feeCalculation": "server only, BigInt intermediate arithmetic",
+    "base": "signed provider unit price * quantity; excludes shipping/tax/Zinc/processing",
+    "zincConnectMargin": "flat cents, our margin only",
+    "display": "one Service fee amount = our margin + verified 100-cent Zinc fee",
+    "processingFeeCents": null,
+    "requiresExplicitVariableFeeConsent": true,
+    "unknownCurrencyBlocked": true,
+    "priceEvidence": "HMAC signed provider price, URL, USD, expiry; client changes rejected",
+    "offlineTestsPassed": 83,
+    "realZincSandboxScenariosPassed": 4,
+    "stripeTestEvidenceReused": true,
+    "newStripeFinancialOperations": 0,
+    "liveFinancialOperations": 0,
+    "credentialsChanged": false,
+    "realRetailerPurchaseVerified": false,
+    "realShipmentVerified": false,
+    "report": "docs/replacement-checkout-fulfillment-verification.md",
+    "productionReadOnly": {
+      "liveModes": true,
+      "financialOperations": 0,
+      "zinc": {
+        "httpStatus": 200,
+        "userId": 1035,
+        "orderFeeCents": 100
+      },
+      "stripe": {
+        "httpStatus": 200,
+        "accountId": "acct_1Th9uUQg8UTscDty",
+        "chargesEnabled": true,
+        "cardPaymentsActive": true
+      },
+      "zincConnect": {
+        "httpStatus": 404,
+        "connectedAccountId": null,
+        "userId": null,
+        "ready": null,
+        "verification": "unavailable; not evidence of disconnection"
+      }
+    },
+    "deployment": {
+      "place-order": {
+        "version": 16,
+        "status": "ACTIVE",
+        "verify_jwt": true,
+        "estimateContractPresent": true,
+        "maximumOnlyGuardAbsent": true
+      },
+      "search-products": {
+        "version": 15,
+        "status": "ACTIVE",
+        "verify_jwt": true,
+        "currencyMappingPresent": true
+      },
+      "stripe-readiness": {
+        "version": 18,
+        "status": "ACTIVE",
+        "verify_jwt": false
+      }
+    },
+    "build": {
+      "id": "6a4c889d-6c15-46e1-8b25-48ba4b7f3a7c",
+      "status": "FINISHED",
+      "appVersion": "1.0.0",
+      "appBuildVersion": "14"
+    },
+    "sourceDigests": {
+      "src/app/(app)/checkout-confirmation.tsx": "394bf995623cd3b134051526cc695a430b58c7b89019fda2988284fa94541236",
+      "src/app/(app)/chat.tsx": "2213dd052e67d12b78cb33db1a793c125d6409874ea393d7a36aefa08fffb227",
+      "src/app/(app)/order-history.tsx": "8fa9157926925577a68536ff6f499ce589613b07224d7c7c8d13a246c96f396c",
+      "src/services/checkoutSubmission.ts": "3dc08108dbe1f7ee0377d051eaa108951a27d168c69f863d182ef1257454365f",
+      "src/services/orderService.ts": "dfbd30640f10beb25e5794ecd3792bc8b44a94b41453a82f7c8578952483f4e4",
+      "src/services/checkoutPricing.ts": "9f3517f48922d358743847f529fa6056ff71a65a1db408ca61cebd9e79b6d674",
+      "src/services/zincService.ts": "86d7b01fd821e236f9c8c128126c636fc917096e4f158759c36ea774090b377c",
+      "supabase/functions/_shared/checkout-pricing.ts": "6fd25da17aab3b63644487623c2896f26980638e42f0f26bf6e00f8a2b239efb",
+      "supabase/functions/_shared/listing-price.ts": "d8644ef456f5e1762eb36abe0840d58b5a1b37f1479c22a21fd6f3e8249f9e3f",
+      "supabase/functions/_shared/order-status.ts": "4f823aaed7dc85f470d6e2de0a527070be7a00c30e3dd8325fcfc50012071d55",
+      "supabase/functions/place-order/index.ts": "4edae0740343b889c9df5904beb95c950d616cc5df30207d343fb4e8b6ef21fc",
+      "supabase/functions/search-products/index.ts": "307a4be1b71d9ce3ca7095bbefee52420751951308c0e510d0d116f11d460aac"
+    },
+    "currencyInvestigation": {
+      "crossRetailer": {
+        "currencyFieldDocumented": false,
+        "allUsdGuaranteeDocumented": false,
+        "evidence": [
+          "https://api.zinc.com/openapi.json",
+          "https://www.zinc.com/docs/v2/api-reference/search/cross-retailer.md"
+        ]
+      },
+      "retailerSpecific": {
+        "etsy": {
+          "endpoint": "/products/search",
+          "searchCurrency": "USD",
+          "rule": "US shops; remaining non-USD listings excluded; currency_code on every result; no price conversion",
+          "appliesToCrossRetailerSearch": false,
+          "evidence": "https://www.zinc.com/docs/v2/api-reference/products/search.md"
+        },
+        "amazon": {
+          "domainDoesNotEstablishSearchCurrency": true,
+          "evidence": "https://sell.amazon.com/global-selling/usa-to-international"
+        },
+        "bestbuy": {
+          "generalCurrencyGuaranteeEstablishedForZincCrossSearch": false,
+          "note": "Old user Q&A saying USD is not a current API currency contract."
+        }
+      },
+      "decision": "Use explicit provider currency; do not infer from dollars symbol, retailer slug, US address or domain. Missing currency remains blocked."
+    },
+    "signedIosBuild": {
+      "buildId": "6a4c889d-6c15-46e1-8b25-48ba4b7f3a7c",
+      "version": "1.0.0",
+      "buildNumber": "14",
+      "status": "FINISHED",
+      "ipaPath": "/Users/neilduddukuri/Downloads/fetchit-mobile-main/dist/checkout-service-fee-build-14/FetchIt-1.0.0-14.ipa",
+      "sha256": "40c63caf35eea6983fca4dbdec51a3d28e46a521434340398245beb856fa3dc7",
+      "signatureVerified": true,
+      "appAttestEnvironment": "production",
+      "appStoreProvisioning": true,
+      "secureStoreNativeModulePresent": true,
+      "clientSourceDigests": {
+        "src/app/(app)/checkout-confirmation.tsx": "394bf995623cd3b134051526cc695a430b58c7b89019fda2988284fa94541236",
+        "src/app/(app)/chat.tsx": "2213dd052e67d12b78cb33db1a793c125d6409874ea393d7a36aefa08fffb227",
+        "src/app/(app)/order-history.tsx": "8fa9157926925577a68536ff6f499ce589613b07224d7c7c8d13a246c96f396c",
+        "src/services/checkoutSubmission.ts": "3dc08108dbe1f7ee0377d051eaa108951a27d168c69f863d182ef1257454365f",
+        "src/services/orderService.ts": "dfbd30640f10beb25e5794ecd3792bc8b44a94b41453a82f7c8578952483f4e4",
+        "src/services/checkoutPricing.ts": "9f3517f48922d358743847f529fa6056ff71a65a1db408ca61cebd9e79b6d674",
+        "src/services/zincService.ts": "86d7b01fd821e236f9c8c128126c636fc917096e4f158759c36ea774090b377c"
+      },
+      "bundleMarkers": {
+        "Service fee: ": true,
+        "Estimated total. Final shipping, taxes, and processing fees may vary.": true,
+        "usd-service-fee-v2": true,
+        "listingProof": true,
+        "fetchit.checkout.pending.": true,
+        "checkout_submission_pending": true,
+        "A previous checkout is unresolved.": true,
+        "Tracking: ": true,
+        "Retailer status: ": true,
+        "Payment status: ": true,
+        "Size": true,
+        "Color": true,
+        "addressLine2": true,
+        "Provider status unavailable.": true
+      },
+      "legacyFeeLabelAbsent": true,
+      "testFlightUploaded": false,
+      "realRetailerPurchaseVerified": false
+    },
+    "databaseReadOnly": [
+      {
+        "audit": {
+          "columns": [
+            {
+              "table": "profiles",
+              "column": "user_id",
+              "type": "uuid",
+              "nullable": "NO"
+            },
+            {
+              "table": "orders",
+              "column": "service_fee",
+              "type": "numeric",
+              "nullable": "YES"
+            },
+            {
+              "table": "orders",
+              "column": "order_price",
+              "type": "numeric",
+              "nullable": "YES"
+            },
+            {
+              "table": "orders",
+              "column": "user_id",
+              "type": "uuid",
+              "nullable": "NO"
+            },
+            {
+              "table": "profiles",
+              "column": "stripe_customer_id",
+              "type": "text",
+              "nullable": "YES"
+            },
+            {
+              "table": "profiles",
+              "column": "stripe_payment_method_id",
+              "type": "text",
+              "nullable": "YES"
+            },
+            {
+              "table": "orders",
+              "column": "status",
+              "type": "text",
+              "nullable": "NO"
+            },
+            {
+              "table": "orders",
+              "column": "zinc_order_id",
+              "type": "text",
+              "nullable": "YES"
+            },
+            {
+              "table": "profiles",
+              "column": "address_line2",
+              "type": "text",
+              "nullable": "YES"
+            }
+          ],
+          "policies": [
+            {
+              "table": "orders",
+              "command": "ALL",
+              "using": "(auth.uid() = user_id)",
+              "check": "(auth.uid() = user_id)"
+            },
+            {
+              "table": "profiles",
+              "command": "ALL",
+              "using": "(auth.uid() = user_id)",
+              "check": "(auth.uid() = user_id)"
+            }
+          ],
+          "constraints": [
+            "PRIMARY KEY (id)",
+            "FOREIGN KEY (user_id) REFERENCES auth.users(id) ON DELETE CASCADE"
+          ]
+        }
+      }
+    ],
+    "selectedReleaseArtifactVerified": true,
+    "uploadRegressionTestsPassed": 15,
+    "build14FinalVerification": {
+      "appleDelivery": {
+        "version": "1.0.0",
+        "buildNumber": "14",
+        "deliveryId": "9f7d22d4-0ce8-45fc-907f-7f3e7b38b7bb",
+        "result": {
+          "returncode": 0,
+          "delivery_id": "9f7d22d4-0ce8-45fc-907f-7f3e7b38b7bb",
+          "build_status": "BETA_INTERNAL_TESTING",
+          "import_status": "VALID",
+          "on_connect": true,
+          "failed": false
+        },
+        "accepted": true,
+        "processing": false,
+        "internalTestingAvailable": true,
+        "externalTestingApproval": "not established by delivery status",
+        "newUploadPerformed": false
+      },
+      "productionSourceDigestsUnchanged": true,
+      "deployedFunctionBodiesUnchanged": true,
+      "credentialDigestsUnchanged": true,
+      "additionalAutomatedTestsPassed": 3,
+      "additionalRealZincSandboxSimulationsPassed": 1,
+      "newStripeFinancialOperations": 0,
+      "liveFinancialOperations": 0,
+      "newBuildOrUpload": false,
+      "report": "docs/build-14-final-verification.md"
+    },
+    "continuousBuild14Verification": {
+      "automatedFlow": "passed within documented partial-integration boundary",
+      "targetedOfflinePassed": 3,
+      "affectedSafetyPassed": 12,
+      "newRealZincSandboxSimulationsPassed": 2,
+      "continuousFlow": "actual checkout, handler, saved-row mapper, restart recovery and history through tracking and simulated delivery",
+      "lostResponse": "real sandbox acceptance, injected response loss, restart stays locked with one POST",
+      "mocked": [
+        "native UI primitives",
+        "Supabase authentication/database",
+        "Stripe customer/card reads",
+        "eligible USD search fixture"
+      ],
+      "ordinarySearch": {
+        "testMode": true,
+        "productionSearch": false,
+        "httpStatus": 200,
+        "status": "completed",
+        "resultCount": 10,
+        "explicitUsd": 0,
+        "missingCurrency": 10,
+        "fields": [
+          "url",
+          "retailer",
+          "title",
+          "image",
+          "brand",
+          "price",
+          "stars",
+          "num_reviews",
+          "available",
+          "free_shipping"
+        ],
+        "errorCode": null
+      },
+      "liveStripeReadOnly": {
+        "stripeAuthenticated": true,
+        "keyMode": "live",
+        "accountId": "acct_1Th9uUQg8UTscDty",
+        "chargesEnabled": true,
+        "payoutsEnabled": true,
+        "capabilities": {
+          "acss_debit_payments": "active",
+          "affirm_payments": "active",
+          "afterpay_clearpay_payments": "active",
+          "amazon_pay_payments": "active",
+          "bancontact_payments": "active",
+          "blik_payments": "active",
+          "card_payments": "active",
+          "cartes_bancaires_payments": "pending",
+          "cashapp_payments": "active",
+          "eps_payments": "active",
+          "klarna_payments": "active",
+          "link_payments": "active",
+          "mb_way_payments": "active",
+          "pay_by_bank_payments": "active",
+          "pix_payments": "active",
+          "satispay_payments": "active",
+          "scalapay_payments": "inactive",
+          "transfers": "active",
+          "us_bank_account_ach_payments": "active"
+        },
+        "profileAudit": {
+          "profiles": 3,
+          "valid": 1,
+          "missingReferences": 1,
+          "wrongModeOrOwner": 1,
+          "unavailable": 0
+        },
+        "publishableKeyPairing": {
+          "verified": true,
+          "method": "existing_setup_intent_readback"
+        },
+        "limitations": [
+          "If no existing live intent is available, publishable-key/account pairing requires Dashboard verification.",
+          "Zinc Connect account linkage requires Zinc Dashboard verification.",
+          "No financial transaction was attempted."
+        ]
+      },
+      "zincCurrentConnectLinkageVerified": false,
+      "productionSourceUnchanged": true,
+      "newBuild": false,
+      "liveOrdersHoldsCharges": 0,
+      "newStripeFinancialOperations": 0,
+      "report": "docs/build-14-final-verification.md"
+    },
+    "currencySearchResolution": {
+      "source": "Zinc documented /products/search retailer=etsy; actual currency_code and minor-unit price",
+      "deployment": {
+        "searchProductsVersion": 16,
+        "active": true,
+        "verifyJwt": true,
+        "exactDeployedSourceVerified": true
+      },
+      "backendSourceSha256": "9ecc72537d5b4bf9adef5d462dba2a8cc54d6f0b7a4e9180d5ad48aad564aefb",
+      "affectedAutomatedTestsPassed": 55,
+      "realSearchToZincDeliverySimulationPassed": true,
+      "searchCurrencyMocked": false,
+      "retailerUrlReplacedWithFixture": false,
+      "nativeAuthDatabaseStripeReadsMocked": true,
+      "retailerCheck": {
+        "httpStatus": 200,
+        "url": "https://www.etsy.com/listing/4588128789/promoted-to-nonna-mug-new-grandma-gift",
+        "domain": "etsy.com",
+        "orderable": true,
+        "support": "active",
+        "retailer": {
+          "retailer": "etsy",
+          "brand": "etsy",
+          "display_name": null,
+          "country": null
+        },
+        "platform": null,
+        "checkout": {
+          "guest_checkout": true,
+          "use_your_account": false
+        },
+        "ships_to": null,
+        "evidence": {
+          "orders_placed": true,
+          "last_order_at": "2026-10-04"
+        },
+        "support_detail": "Real customer orders have succeeded at this store within the last 90 days. Order normally.",
+        "unsupported_reason": null,
+        "how_to_order": "POST /orders with this URL in products[]; Zinc resolves the retailer from the URL."
+      },
+      "newStripeFinancialOperations": 0,
+      "liveOrdersHoldsCharges": 0,
+      "credentialsChanged": false,
+      "clientChanged": false,
+      "buildRemains": 14,
+      "currentConnectManualCheck": "passed: user reports current signed-in Zinc dashboard shows Connected and Your account is ready",
+      "otherUnresolvedCurrencyPurchasesBlocked": true,
+      "report": "docs/currency-search-resolution.md",
+      "freshConnectReadinessEvidence": {
+        "source": "user-reported current Zinc dashboard confirmation",
+        "connectionStatus": "Connected",
+        "readinessStatus": "Your account is ready",
+        "idsIndependentlyShownByThisEvidence": false,
+        "previouslyVerifiedZincUserId": 1035,
+        "previouslyVerifiedStripeAccountId": "acct_1Th9uUQg8UTscDty",
+        "idAttribution": "Previously authenticated account evidence; not independently established by the current readiness confirmation",
+        "testsRepeated": false
+      }
+    },
+    "finalInstallReleaseCheck": {
+      "verdict": "Ready to install build 14",
+      "buildNumber": 14,
+      "artifact": {
+        "selectedBuild": 14,
+        "ipaHashMatchesSignedVerifiedArtifact": true,
+        "clientSourceMatches": true,
+        "bundleMarkersVerified": true,
+        "appleSavedAcceptance": {
+          "version": "1.0.0",
+          "buildNumber": "14",
+          "deliveryId": "9f7d22d4-0ce8-45fc-907f-7f3e7b38b7bb",
+          "result": {
+            "returncode": 0,
+            "delivery_id": "9f7d22d4-0ce8-45fc-907f-7f3e7b38b7bb",
+            "build_status": "BETA_INTERNAL_TESTING",
+            "import_status": "VALID",
+            "on_connect": true,
+            "failed": false
+          },
+          "accepted": true,
+          "processing": false,
+          "internalTestingAvailable": true,
+          "externalTestingApproval": "not established by delivery status",
+          "newUploadPerformed": false
+        },
+        "backendSourceSincePassingTestsUnchanged": true,
+        "freshReadinessEvidence": {
+          "source": "user-reported current Zinc dashboard confirmation",
+          "connectionStatus": "Connected",
+          "readinessStatus": "Your account is ready",
+          "idsIndependentlyShownByThisEvidence": false,
+          "previouslyVerifiedZincUserId": 1035,
+          "previouslyVerifiedStripeAccountId": "acct_1Th9uUQg8UTscDty",
+          "idAttribution": "Previously authenticated account evidence; not independently established by the current readiness confirmation",
+          "testsRepeated": false
+        }
+      },
+      "currentDeployedSource": {
+        "exactSourceVerified": [
+          "supabase/functions/_shared/checkout-pricing.ts",
+          "supabase/functions/_shared/listing-price.ts",
+          "supabase/functions/_shared/order-status.ts",
+          "supabase/functions/place-order/index.ts",
+          "supabase/functions/search-products/index.ts"
+        ],
+        "credentialDigestsUnchanged": true
+      },
+      "savedAddressMapping": {
+        "productionProfilesRead": 3,
+        "completeSavedProfilesMappedExactlyAfterDocumentedNormalization": 2,
+        "incompleteProfilesRejectedWithoutSubstituteAddress": 1,
+        "realZincRequests": 0,
+        "authDatabaseStripeMocked": true,
+        "personalAddressPrintedOrSaved": false
+      },
+      "configurationChanged": false,
+      "newBuildOrUpload": false,
+      "newLiveOrdersHoldsCharges": 0,
+      "unchangedTestsReused": true,
+      "supportedScope": "verified-USD Etsy path; other unresolved currency blocked",
+      "report": "docs/build-14-install-release-check.md"
+    },
+    "finalConnectMarginVerification": {
+      "verdict": "PASS: code/configuration and mocked outgoing payload/UI capture",
+      "captured": {
+        "passed": true,
+        "itemSubtotalCents": 10000,
+        "retailerBudgetCents": 15000,
+        "payment": {
+          "mode": "connect",
+          "margin": {
+            "type": "flat",
+            "value": 550
+          }
+        },
+        "zincFeeCents": 100,
+        "displayedServiceFeeCents": 650,
+        "processingFee": "separately disclosed; amount unknown",
+        "zincFeeIncludedInOurMargin": false,
+        "retailerBudgetDoesNotInflateMargin": true,
+        "realNetworkCalls": 0,
+        "transportAndStripeReferencesMocked": true
+      },
+      "liveReadOnly": {
+        "accountId": "acct_1Th9uUQg8UTscDty",
+        "keyMode": "live",
+        "chargesEnabled": true,
+        "payoutsEnabled": true,
+        "profileAudit": {
+          "profiles": 3,
+          "valid": 1,
+          "missingReferences": 1,
+          "wrongModeOrOwner": 1,
+          "unavailable": 0
+        },
+        "publishableKeyPairing": {
+          "verified": true,
+          "method": "existing_setup_intent_readback"
+        },
+        "deployedSourceVerified": [
+          "supabase/functions/_shared/checkout-pricing.ts",
+          "supabase/functions/_shared/stripe-backend.ts",
+          "supabase/functions/place-order/index.ts"
+        ],
+        "financialOperations": 0
+      },
+      "targetedRegressionPassed": 1,
+      "actualPayoutVerified": false,
+      "liveFinancialOperations": 0,
+      "report": "docs/connect-margin-final-verification.md"
+    },
+    "amazonUsVerification": {
+      "report": "docs/amazon-us-checkout-verification.md",
+      "scope": "Amazon US available New offers with explicit per-offer USD currency",
+      "authoritativePriceUnits": "Zinc supported product-offers API: integer cents excluding shipping",
+      "currencyAssignedFrom": "actual matching-ASIN offer.currency, never cross-retailer price or retailer-domain inference",
+      "quotedSellerPreserved": "signed evidence and outgoing metadata; seller may vary disclosed",
+      "sellerPinningSupported": false,
+      "selectedVariantsBoundToAsinAndProof": true,
+      "retailerSupport": {
+        "httpStatus": 200,
+        "url": "https://www.amazon.com/dp/B0CB75WJZP",
+        "domain": "amazon.com",
+        "orderable": true,
+        "support": "active",
+        "retailer": {
+          "retailer": "amazon",
+          "brand": "amazon",
+          "display_name": null,
+          "country": null
+        },
+        "platform": null,
+        "checkout": {
+          "guest_checkout": true,
+          "use_your_account": false
+        },
+        "ships_to": null,
+        "evidence": {
+          "orders_placed": true,
+          "last_order_at": "2026-10-04"
+        },
+        "support_detail": "Real customer orders have succeeded at this store within the last 90 days. Order normally.",
+        "unsupported_reason": null,
+        "how_to_order": "POST /orders with this URL in products[]; Zinc resolves the retailer from the URL."
+      },
+      "fullCheckoutChecksPassed": 95,
+      "finalTargetedChecksPassed": 17,
+      "finalRealAmazonSearchSandboxDeliveryFlowPassed": true,
+      "mocked": [
+        "native primitives",
+        "Supabase auth/database transport",
+        "Stripe reference reads"
+      ],
+      "real": [
+        "Amazon test-key search/details/offers data",
+        "Zinc sandbox order/status calls"
+      ],
+      "realRetailerPurchaseOrShipmentVerified": false,
+      "deployment": {
+        "placeOrder": 17,
+        "searchProducts": 17,
+        "active": true,
+        "verifyJwt": true
+      },
+      "release": {
+        "deployedSourceMatchesTested": [
+          "supabase/functions/_shared/checkout-pricing.ts",
+          "supabase/functions/_shared/listing-price.ts",
+          "supabase/functions/_shared/order-status.ts",
+          "supabase/functions/place-order/index.ts",
+          "supabase/functions/search-products/index.ts"
+        ],
+        "sourceDigests": {
+          "supabase/functions/place-order/index.ts": "2ce0088ad41a6965fc90f9e000f1824f3dc7ab0ec288c18e5be7e927fa49ad56",
+          "supabase/functions/search-products/index.ts": "f6417ba3b6bff75b77ef5cc5ef105d0aff611cc84ce7cf4da1e834c470622063",
+          "supabase/functions/_shared/listing-price.ts": "0c38ee78a81364f376cbc904b65875e53a9916a084e919f78ab00350691e3f4b",
+          "supabase/functions/_shared/checkout-pricing.ts": "6fd25da17aab3b63644487623c2896f26980638e42f0f26bf6e00f8a2b239efb",
+          "supabase/functions/_shared/order-status.ts": "4f823aaed7dc85f470d6e2de0a527070be7a00c30e3dd8325fcfc50012071d55"
+        },
+        "credentialsUnchanged": true,
+        "clientBuild14Unchanged": true,
+        "build14IpaUnchanged": true
+      },
+      "newIosBuild": false,
+      "installBuild": 14,
+      "liveOrdersHoldsCharges": 0,
+      "newStripeFinancialOperations": 0
+    }
   }
 }

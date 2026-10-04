@@ -1,3 +1,19 @@
+# Replacement build 14 verification
+
+Current scope: [Amazon US verification](../../docs/amazon-us-checkout-verification.md). `RUN_REAL_CURRENCY_SEARCH=1 node --test tests/checkout-e2e/currency-search.test.cjs` now tests actual Amazon search/details/explicit-USD offers through Zinc sandbox delivery with the same Amazon ASIN URL. Earlier Etsy command descriptions below are historical.
+
+Latest: [currency-bearing search resolution](../../docs/currency-search-resolution.md). Backend-only search v16 uses Zinc's documented Etsy currency-bearing API when cross-retailer results have no eligible USD evidence; build 14 remains selected. Run `RUN_REAL_CURRENCY_SEARCH=1 node --test tests/checkout-e2e/currency-search.test.cjs` for actual search currency/price/URL through checkout and real Zinc simulated delivery. Native/auth/database/Stripe reads remain mocked. The test-only order boundary permits only test keys and explicitly allowlisted API-returned Etsy URLs in addition to the usual test products.
+
+See [replacement verification](../../docs/replacement-checkout-fulfillment-verification.md): 83 automated UI/backend/provider-safety checks and four real Zinc sandbox scenarios passed with the server-calculated margin. Stripe component evidence was reused, with no new Stripe financial operations. Unknown search currency stays blocked. Earlier sections below are historical.
+
+---
+
+# Latest build 13 audit
+
+See [purchase and fulfillment verification](../../docs/build-13-purchase-fulfillment-verification.md) for current results and exact blockers. Fixed source: 67 offline checks passed; real Zinc sandbox: four simulated scenarios passed. Stripe component evidence was reused; the sandbox runner performs no new Stripe financial tests. Price estimate logic is real; shipping, taxes and processing remain unknown, not invented. Earlier sections below are historical observations and do not describe the current runner or readiness verdict.
+
+---
+
 # Current estimate regression verification
 
 Run only the offline changes: `node --test tests/order-placement.test.js tests/checkout-e2e/checkout.test.cjs`.

@@ -120,8 +120,20 @@ def parse_apple_output(text, returncode=0):
 
 def imported(result):
     complete = {'VALID', 'COMPLETE', 'COMPLETED', 'SUCCESS', 'SUCCEEDED', 'IMPORTED'}
+    # Build distribution status is distinct from import validation status.
+    ready_build = complete | {'VALID_BINARY', 'BETA_INTERNAL_TESTING'}
     return (not result['failed'] and result['returncode'] == 0 and result['on_connect'] is True
-            and result['build_status'] in complete and result['import_status'] in complete)
+            and result['build_status'] in ready_build and result['import_status'] in complete)
+
+
+def internal_testing_available(result):
+    return imported(result) and result['build_status'] == 'BETA_INTERNAL_TESTING'
+
+
+def processing(result):
+    pending = {'PROCESSING', 'UPLOAD_COMPLETE'}
+    return (not result['failed'] and not imported(result) and
+            (result['build_status'] in pending or result['import_status'] in pending))
 
 
 def run_apple(arguments, env, password):
@@ -139,9 +151,8 @@ def run_apple(arguments, env, password):
 
 
 def status_arguments(delivery_id):
-    return ['--build-status', '--delivery-id', delivery_id,
-            '--apple-id', APP_ID, '--bundle-version', BUILD_NUMBER,
-            '--platform', 'ios', '--bundle-short-version-string', VERSION, '--wait']
+    # altool accepts delivery ID OR app/version selectors, never both.
+    return ['--build-status', '--delivery-id', delivery_id, '--wait']
 
 
 def read_receipt():
@@ -186,9 +197,18 @@ def main():
         env[PASSWORD_ENV] = password
         print('Checking Apple processing for the recorded delivery; no duplicate upload will be sent.')
         result = run_apple(status_arguments(delivery_id), env, password)
+        if result['failed']:
+            raise UploadError('Apple import failed. Check the reported error and saved delivery before retrying; no duplicate upload was sent.')
         if not imported(result):
-            raise UploadError('Apple import failed or is not yet verified. Rerun this script to check the saved delivery without uploading again.')
-        print(f'Apple confirms FetchIt {VERSION} ({BUILD_NUMBER}) was imported into App Store Connect. Check its TestFlight testing-group availability.')
+            if processing(result):
+                print('Apple processing is still in progress. Rerun this script to check the saved delivery without uploading again.')
+            else:
+                print('Apple import has not yet been verified. Check App Store Connect or rerun the saved-delivery status check without uploading again.')
+            return 2
+        if internal_testing_available(result):
+            print(f'Apple confirms FetchIt {VERSION} ({BUILD_NUMBER}) was imported into App Store Connect and is available for internal TestFlight testing.')
+        else:
+            print(f'Apple confirms FetchIt {VERSION} ({BUILD_NUMBER}) was imported into App Store Connect. Check its TestFlight testing-group availability.')
         return 0
     except UploadError as error:
         print(str(error), file=sys.stderr)

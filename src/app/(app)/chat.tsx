@@ -1,3 +1,4 @@
+import { formatKnownPrice } from '@/services/checkoutPricing';
 import { useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { useEffect, useRef, useState } from 'react';
@@ -43,6 +44,8 @@ type Msg = {
   text: string;
   products?: ProductResult[];
   quantity?: number;
+  size?: string | null;
+  color?: string | null;
   contextText?: string;
 };
 
@@ -231,7 +234,7 @@ export default function ChatScreen() {
             ? `Products shown for ${result.intent.productQuery}: ${products
                 .map((product, index) => {
                   const price =
-                    product.price === null ? 'price unavailable' : `$${(product.price / 100).toFixed(2)}`;
+                    formatKnownPrice(product.price, product.currency ?? null);
                   return `${index + 1}) ${product.title} - ${price} (${product.retailer})`;
                 })
                 .join(', ')}`
@@ -245,6 +248,7 @@ export default function ChatScreen() {
                 `Hmm, nothing came up for “${result.intent.productQuery}.” Want to try a broader or more specific product name?`,
             products,
             quantity: result.intent.quantity,
+            size: result.intent.size, color: result.intent.color,
             contextText: productSummary,
           });
           setMessages([...completedMessages]);
@@ -386,6 +390,8 @@ export default function ChatScreen() {
                           priceCents: product.price?.toString() ?? '',
                           quantity: (item.quantity ?? 1).toString(),
                           currency: product.currency ?? '',
+                          listingProof: product.listingProof ?? '',
+                          size: item.size ?? '', color: item.color ?? '',
                         },
                       })
                     }
@@ -412,9 +418,7 @@ export default function ChatScreen() {
                       <Text style={styles.productRetailer}>{product.retailer}</Text>
                       <View style={styles.productFooter}>
                         <Text style={styles.productPrice}>
-                          {product.price === null
-                            ? 'Price unavailable'
-                            : `$${(product.price / 100).toFixed(2)}`}
+                          {formatKnownPrice(product.price, product.currency ?? null)}
                         </Text>
                         <Text style={styles.productDisclosure} aria-hidden>
                           ›

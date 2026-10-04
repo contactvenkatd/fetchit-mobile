@@ -1,17 +1,22 @@
 import { supabase } from '@/lib/supabase';
+import { beginSubmission, acceptSubmission, releaseRejectedSubmission } from '@/services/checkoutSubmission';
+export { getSavedSubmission, startNewPurchase } from '@/services/checkoutSubmission';
 
 export interface CheckoutQuote {
   id: string; mode: 'estimate'; revision: string; itemSubtotalCents: number;
   knownCostsCents: number; shippingCents: null; taxCents: null; zincFeeCents: 100;
-  paymentFeeCents: null; fetchitMarginCents: 0; estimatedTotalCents: null;
+  paymentFeeCents: null; fetchitMarginCents: number; serviceFeeCents: number; estimatedTotalCents: null;
   retailerBudgetCents: number; currency: 'USD'; expiresAt: number;
 }
 
 export interface PlaceOrderInput {
   approval?: { quoteId: string; mode: "estimate"; acceptsVariableFees: true; retailerBudgetCents: number; currency: "USD" };
   itemSubtotalCents: number;
+  unitPriceCents: number;
+  listingProof: string;
   currency: "USD";
   productUrl: string;
+  variants?: { label: string; value: string }[];
   quantity: number;
   displayedPriceCents: number;
   productName: string;
@@ -90,20 +95,34 @@ function isPlacedOrder(value: unknown): value is PlacedOrder {
 export async function placeOrder(
   input: PlaceOrderInput,
 ): Promise<{ order: PlacedOrder; warning?: string }> {
-  const { data, error } = await supabase.functions.invoke('place-order', { body: input });
-  if (error) throw await functionError(error);
-
-  const response = data as { success?: unknown; order?: unknown; warning?: unknown } | null;
-  if (response?.success !== true || !isPlacedOrder(response.order)) {
-    throw new PlaceOrderError(
-      'malformed_response',
-      'The order service returned an incomplete confirmation. Check order history and contact support before submitting another purchase.',
-    );
+  try { await beginSubmission(input.idempotencyKey); } catch {
+    throw new PlaceOrderError('checkout_submission_pending',
+      'A previous checkout is unresolved or has already been submitted. Review order history and contact support before submitting another purchase.');
   }
-  return {
-    order: response.order,
-    warning: typeof response.warning === 'string' ? response.warning : undefined,
-  };
+  try {
+    const { data, error } = await supabase.functions.invoke('place-order', { body: input });
+    if (error) throw await functionError(error);
+
+    const response = data as { success?: unknown; order?: unknown; warning?: unknown } | null;
+    if (response?.success !== true || !isPlacedOrder(response.order)) {
+      throw new PlaceOrderError(
+        'malformed_response',
+        'The order service returned an incomplete confirmation. Check order history and contact support before submitting another purchase.',
+      );
+    }
+    try { await acceptSubmission(input.idempotencyKey, response.order); } catch {
+      // Acceptance is real even if journaling fails; the pending record stays locked.
+    }
+    return { order: response.order, warning: typeof response.warning === 'string' ? response.warning : undefined };
+  } catch (error) {
+    if (error instanceof PlaceOrderError && !error.outcomeUnknown) {
+      try { await releaseRejectedSubmission(input.idempotencyKey); } catch {
+        throw new PlaceOrderError('checkout_recovery_unavailable', 'The rejected checkout could not be cleared safely. Review order history before submitting another purchase.');
+      }
+    }
+    throw error;
+  }
+
 }
 
 
@@ -112,10 +131,11 @@ export async function getCheckoutQuote(input: PlaceOrderInput): Promise<Checkout
   if (error) throw await functionError(error);
   const quote = data?.quote as CheckoutQuote | undefined;
   if (!quote || !/^[a-f0-9]{64}$/.test(quote.id) || quote.currency !== 'USD' ||
-      quote.mode !== 'estimate' || quote.revision !== 'usd-variable-fees-v1' ||
+      quote.mode !== 'estimate' || quote.revision !== 'usd-service-fee-v2' ||
       input.currency !== 'USD' || quote.itemSubtotalCents !== input.itemSubtotalCents ||
-      !Number.isSafeInteger(quote.knownCostsCents) || quote.knownCostsCents !== input.itemSubtotalCents + 100 ||
-      quote.zincFeeCents !== 100 || quote.fetchitMarginCents !== 0 ||
+      !Number.isSafeInteger(quote.knownCostsCents) || quote.knownCostsCents !== input.itemSubtotalCents + quote.serviceFeeCents ||
+      quote.zincFeeCents !== 100 || (!Number.isSafeInteger(quote.fetchitMarginCents) || quote.fetchitMarginCents < 200) ||
+      quote.serviceFeeCents !== quote.fetchitMarginCents + quote.zincFeeCents ||
       quote.shippingCents !== null || quote.taxCents !== null || quote.paymentFeeCents !== null ||
       quote.estimatedTotalCents !== null ||
       quote.retailerBudgetCents !== input.displayedPriceCents ||
@@ -130,6 +150,7 @@ export interface CheckoutOrderStatus {
   zincOrderId: string;
   zincStatus: string;
   retailerStatus: string;
+  tracking?: { carrier: string | null; trackingNumber: string | null; status: string; estimatedDeliveryDate: string | null }[];
   simulated: boolean;
   errorCode: string | null;
   connectState: string | null;

@@ -1,3 +1,4 @@
+import { verifyListingPrice } from '../_shared/listing-price.ts';
 import { readOrderStatus } from '../_shared/order-status.ts';
 import { paymentStripe, stripeIsLive } from '../_shared/stripe-backend.ts';
 import { createCheckoutQuote, approvesQuote } from '../_shared/checkout-pricing.ts';
@@ -25,9 +26,12 @@ interface PlaceOrderRequest {
   action?: "quote" | "place";
   approval?: unknown;
   productUrl: string;
+  variants?: { label: string; value: string }[];
   quantity: number;
   displayedPriceCents: number;
   itemSubtotalCents: number;
+  unitPriceCents: number;
+  listingProof: string;
   currency: "USD";
   productName: string;
   productImage: string | null;
@@ -57,6 +61,10 @@ function isPlaceOrderRequest(value: unknown): value is PlaceOrderRequest {
 
   return (
     (body.action === undefined || body.action === "quote" || body.action === "place") &&
+    (body.variants === undefined || (Array.isArray(body.variants) && body.variants.length <= 2 &&
+      body.variants.every(v => v && typeof v === 'object' && ['Size', 'Color'].includes(v.label) &&
+        typeof v.value === 'string' && v.value.trim().length > 0 && v.value.length <= 200) &&
+      new Set(body.variants.map(v => v.label)).size === body.variants.length)) &&
     typeof body.productUrl === "string" &&
     body.productUrl.length <= 4000 &&
     Number.isInteger(body.quantity) &&
@@ -65,6 +73,8 @@ function isPlaceOrderRequest(value: unknown): value is PlaceOrderRequest {
     Number.isSafeInteger(body.displayedPriceCents) &&
     (body.displayedPriceCents as number) > 0 &&
     body.currency === "USD" &&
+    Number.isSafeInteger(body.unitPriceCents) && (body.unitPriceCents as number) > 0 &&
+    typeof body.listingProof === "string" && body.listingProof.length <= 6000 &&
     Number.isSafeInteger(body.itemSubtotalCents) && (body.itemSubtotalCents as number) > 0 &&
     Number.isSafeInteger((body.itemSubtotalCents as number) + 100) &&
     typeof body.productName === "string" &&
@@ -201,7 +211,8 @@ Deno.serve(async (req) => {
   if (!paymentMethod || !customer) {
     return failure("missing_payment_method", "Add a saved payment method before buying.", 409);
   }
-  if (!name || !addressLine1 || !city || !postalCode || !country) {
+  if (!name || !addressLine1 || !city || !postalCode || !country ||
+      (country === "US" && !String(profile.state ?? "").trim())) {
     return failure(
       "incomplete_shipping_address",
       "Complete your name and shipping address before buying.",
@@ -216,10 +227,32 @@ Deno.serve(async (req) => {
     );
   }
 
+  const listing = await verifyListingPrice(orderBody.listingProof, orderBody.productUrl,
+    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim() ?? '');
+  const itemSubtotalCents = listing ? listing.unitPriceCents * orderBody.quantity : NaN;
+  if (!listing || orderBody.unitPriceCents !== listing.unitPriceCents ||
+      !Number.isSafeInteger(itemSubtotalCents) || orderBody.itemSubtotalCents !== itemSubtotalCents) {
+    return failure('invalid_order', 'The product price or currency could not be verified. Search again before approving checkout.', 409);
+  }
+  if (listing.amazon) {
+    if (orderBody.quantity < (listing.amazon.minimumQuantity ?? 1)) {
+      return failure('invalid_order', 'The Amazon offer requires a larger quantity. Search again with the intended quantity.', 409);
+    }
+    if (country !== 'US' || !/^\d{5}(?:-\d{4})?$/.test(postalCode)) {
+      return failure('incomplete_shipping_address', 'Amazon US checkout requires your complete US shipping address and valid ZIP code.', 409);
+    }
+    const requested = orderBody.variants ?? [];
+    if (JSON.stringify(requested) !== JSON.stringify(listing.amazon.variants)) {
+      return failure('invalid_order', 'The Amazon variant changed. Search for the selected variant again before approving checkout.', 409);
+    }
+  }
+  if (new URL(orderBody.productUrl).hostname === 'www.amazon.com' && !listing.amazon) {
+    return failure('invalid_order', 'Search Amazon US again to verify its offer, currency and selected variant.', 409);
+  }
   const quote = await createCheckoutQuote({
-    userId: user.id, productUrl: orderBody.productUrl, quantity: orderBody.quantity,
+    userId: user.id, productUrl: orderBody.productUrl, quantity: orderBody.quantity, variants: orderBody.variants,
     retailerBudgetCents: orderBody.displayedPriceCents,
-    itemSubtotalCents: orderBody.itemSubtotalCents, currency: orderBody.currency,
+    itemSubtotalCents, currency: orderBody.currency,
     profile: { customer, paymentMethod, firstName: name.firstName, lastName: name.lastName,
       addressLine1, addressLine2: String(profile.address_line2 ?? '').trim(), city,
       state: String(profile.state ?? '').trim(), postalCode, country, phone },
@@ -252,7 +285,9 @@ Deno.serve(async (req) => {
   }
 
   const zincRequest = {
-    products: [{ url: orderBody.productUrl, quantity: orderBody.quantity }],
+    products: [{ url: orderBody.productUrl, quantity: orderBody.quantity,
+      ...(listing.amazon ? { condition_in: ['New'] } : {}),
+      ...(orderBody.variants?.length ? { variant: orderBody.variants } : {}) }],
     shipping_address: {
       first_name: name.firstName,
       last_name: name.lastName,
@@ -266,12 +301,18 @@ Deno.serve(async (req) => {
     },
     // Retailer costs only. Zinc and processing fees are additional, as approved.
     max_price: quote.retailerBudgetCents,
+    metadata: { fetchit_item_subtotal_cents: quote.itemSubtotalCents,
+      fetchit_margin_cents: quote.fetchitMarginCents, zinc_fee_cents: quote.zincFeeCents,
+      checkout_fee_revision: quote.revision,
+      ...(listing.amazon ? { amazon_asin: listing.amazon.asin,
+        amazon_quoted_seller_id: listing.amazon.sellerId, amazon_quoted_seller_name: listing.amazon.sellerName,
+        amazon_seller_pinning: 'not_supported_by_v2_contract' } : {}) },
     idempotency_key: orderBody.idempotencyKey,
     payment: {
       mode: "connect",
       payment_method: paymentMethod,
       customer,
-      margin: { type: "flat", value: 0 },
+      margin: { type: "flat", value: quote.fetchitMarginCents },
     },
   };
 
@@ -323,7 +364,7 @@ Deno.serve(async (req) => {
       user_id: user.id,
       product_name: orderBody.productName.trim(),
       order_price: orderPriceDollars,
-      service_fee: 0,
+      service_fee: quote.fetchitMarginCents / 100,
       product_image: orderBody.productImage,
       retailer: orderBody.retailer.trim(),
       category: null,

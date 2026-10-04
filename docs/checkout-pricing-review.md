@@ -1,3 +1,9 @@
+# Current replacement fee flow
+
+The approved margin is now 200 cents + round(item subtotal cents × 0.035), calculated only on the server and passed to Zinc as a flat Connect margin. The displayed Service fee includes that margin plus the verified $1 Zinc fee once. Unknown shipping/tax/processing remain unknown. See [replacement verification](replacement-checkout-fulfillment-verification.md). Earlier zero-margin and guaranteed-maximum discussions below are historical and do not describe the replacement release.
+
+---
+
 # Approved estimate checkout — current release
 
 The guaranteed customer maximum requirement was replaced by the user-approved

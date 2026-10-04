@@ -15,19 +15,22 @@ function load(file, imports = {}, globals = {}, stripImports = false) {
   const context = { exports: {}, require(name) {
     if (Object.hasOwn(imports, name)) return imports[name];
     throw new Error(`Unexpected module ${name}`);
-  }, TextEncoder, crypto: crypto.webcrypto, Date, setTimeout, clearTimeout, ...globals };
+  }, TextEncoder, crypto: crypto.webcrypto, Date, AbortSignal, setTimeout, clearTimeout, ...globals };
   vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX,
   } }).outputText, context, { filename: file });
   return context.exports;
 }
 const pricing = load('supabase/functions/_shared/checkout-pricing.ts');
+const listing = load('supabase/functions/_shared/listing-price.ts');
+const listingSecret = 'mock-signing-key';
+const fixtureProof = (url, price = 1000) => listing.signListingPrice(url, price, 'USD', listingSecret);
 const userId = crypto.randomUUID();
 const localOrderId = crypto.randomUUID();
 const zincId = crypto.randomUUID();
 const profile = { full_name: 'Sandbox Agent', country: 'US', phone_number: '4155552671',
   stripe_payment_method_id: 'pm_fixture', stripe_customer_id: 'cus_fixture',
-  address_line1: '101 Market St', city: 'San Francisco', state: 'CA', zip: '94105' };
+  address_line1: '101 Market St', address_line2: 'Unit 4', city: 'San Francisco', state: 'CA', zip: '94105' };
 function backend({ upstream, stripe, key = 'zn_test_fixture', pricingAvailable = true, persistFails = false, owned = true, production = false, capturedCents = 950 } = {}) {
   const liveMode = key.startsWith('zn_live_');
   const calls = { submissions: [], inserts: [], statuses: 0, stripeReads: 0, invocations: [] };
@@ -68,10 +71,10 @@ function backend({ upstream, stripe, key = 'zn_test_fixture', pricingAvailable =
   };
   load('supabase/functions/place-order/index.ts', {}, {
     Response, Request, URL, AbortSignal, console,
-    Deno: { env: { get: n => ({ SUPABASE_URL: production ? 'https://fpphpncruohjlppqhfep.supabase.co' : 'https://isolated.invalid', SUPABASE_ANON_KEY: 'mock', ZINC_API_KEY: key })[n] }, serve: fn => { handler = fn; } },
+    Deno: { env: { get: n => ({ SUPABASE_URL: production ? 'https://fpphpncruohjlppqhfep.supabase.co' : 'https://isolated.invalid', SUPABASE_ANON_KEY: 'mock', SUPABASE_SERVICE_ROLE_KEY: listingSecret, ZINC_API_KEY: key })[n] }, serve: fn => { handler = fn; } },
     createClient: () => db, paymentStripe, stripeIsLive: () => liveMode,
     createCheckoutQuote: context => pricingAvailable ? pricing.createCheckoutQuote(context) : null,
-    approvesQuote: pricing.approvesQuote, readOrderStatus: status, fetch: providerFetch,
+    verifyListingPrice: listing.verifyListingPrice, approvesQuote: pricing.approvesQuote, readOrderStatus: status, fetch: providerFetch,
   }, true);
   const invoke = async (_, { body }) => {
     calls.invocations.push(body);
@@ -81,9 +84,19 @@ function backend({ upstream, stripe, key = 'zn_test_fixture', pricingAvailable =
     const data = await response.json();
     return response.ok ? { data, error: null } : { data: null, error: { context: { json: async () => data } } };
   };
-  return { calls, invoke, api: load('src/services/orderService.ts', { '@/lib/supabase': { supabase: { functions: { invoke } } } }) };
+  const storage = new Map();
+  const secureStore = { getItemAsync: async key => storage.get(key) ?? null,
+    setItemAsync: async (key, value) => { storage.set(key, value); }, deleteItemAsync: async key => { storage.delete(key); } };
+  const auth = db.auth;
+  const reloadApi = () => {
+    const journal = load('src/services/checkoutSubmission.ts', { 'expo-secure-store': secureStore,
+      '@/lib/supabase': { supabase: { auth } } });
+    return load('src/services/orderService.ts', {
+      '@/lib/supabase': { supabase: { auth, functions: { invoke } } }, '@/services/checkoutSubmission': journal });
+  };
+  return { calls, invoke, storage, reloadApi, api: reloadApi() };
 }
-function mount(api, slug = 'test-success', params = {}) {
+function mount(api, slug = 'test-success', params = {}, historyOrders = null, timers = {}) {
   const { JSDOM } = require('jsdom');
   const dom = new JSDOM('<div id="root"></div>', { url: 'https://isolated.invalid' });
   global.window = dom.window; global.document = dom.window.document;
@@ -93,6 +106,7 @@ function mount(api, slug = 'test-success', params = {}) {
   const { act } = React;
   const h = React.createElement;
   let changeBudget;
+  let listingProof = params.listingProof;
   const wrapper = tag => ({ children }) => h(tag, null, children);
   const native = {
     View: wrapper('div'), Text: wrapper('span'), ScrollView: wrapper('div'),
@@ -105,27 +119,29 @@ function mount(api, slug = 'test-success', params = {}) {
   const common = { react: React, 'react/jsx-runtime': require('react/jsx-runtime'), 'react-native': native };
   const colors = load('src/theme/colors.ts');
   const button = load('src/components/ui/Button.tsx', { ...common, '@/theme/colors': colors });
-  const screen = load('src/app/(app)/checkout-confirmation.tsx', {
+  const screen = load(historyOrders ? 'src/app/(app)/order-history.tsx' : 'src/app/(app)/checkout-confirmation.tsx', {
+    '@/lib/auth': { useAuth: () => ({ session: { user: { id: userId } } }) },
+    '@/lib/data': timers.dataModule ?? { getOrders: async () => historyOrders, money: value => typeof value === 'number' ? `$${value.toFixed(2)}` : '—' },
     ...common, 'expo-crypto': { randomUUID: crypto.randomUUID }, 'expo-image': { Image: () => null },
     'expo-router': { useRouter: () => ({ replace() {}, back() {} }), useLocalSearchParams: () => ({
-      productUrl: `https://zinc.com/shop/products/${slug}`, title: 'Isolated checkout fixture', retailer: 'Zinc sandbox', priceCents: '1000', quantity: '1', currency: 'USD', ...params,
+      productUrl: `https://zinc.com/shop/products/${slug}`, title: 'Isolated checkout fixture', retailer: 'Zinc sandbox', priceCents: '1000', quantity: '1', currency: 'USD', listingProof, ...params,
     }) }, '@/components/ui/Button': button, '@/components/ui/Screen': { Screen: wrapper('main') },
-    '@/lib/api': { getProfile: async () => ({ fullName: profile.full_name, addressLine1: profile.address_line1,
+    '@/lib/api': { getProfile: async () => ({ fullName: profile.full_name, addressLine1: profile.address_line1, addressLine2: profile.address_line2,
       city: profile.city, state: profile.state, zip: profile.zip, country: profile.country,
       stripeCustomerId: profile.stripe_customer_id, stripePaymentMethodId: profile.stripe_payment_method_id, cardLast4: '4242', cardBrand: 'visa' }) },
     '@/services/orderService': api, '@/theme/colors': colors,
     '@/services/checkoutPricing': load('src/services/checkoutPricing.ts'),
-  }).default;
+  }, timers).default;
   const container = document.getElementById('root');
   const reactRoot = createRoot(container);
   const flush = async () => { await act(async () => { await new Promise(r => setTimeout(r, 20)); }); };
   return { container, act, flush,
     setBudget: async value => { await act(async () => changeBudget(value)); await flush(); },
-    start: async () => { await act(async () => reactRoot.render(h(screen))); await flush(); },
+    start: async () => { if (listingProof === undefined) listingProof = await fixtureProof(params.productUrl ?? `https://zinc.com/shop/products/${slug}`, Number(params.priceCents ?? 1000)); await act(async () => reactRoot.render(h(screen))); await flush(); },
     button: label => [...container.querySelectorAll('button')].find(b => b.textContent === label),
     click: async label => { const b = [...container.querySelectorAll('button')].find(b => b.textContent === label);
       if (!b) throw new Error(`Missing button ${label}`); await act(async () => b.click()); await flush(); },
     close: async () => { await act(async () => reactRoot.unmount()); dom.window.close(); },
   };
 }
-module.exports = { backend, mount, load, profile, userId, localOrderId, zincId };
+module.exports = { backend, mount, mountHistory: (api, orders, timers = {}) => mount(api, 'test-success', {}, orders, timers), load, fixtureProof, profile, userId, localOrderId, zincId };

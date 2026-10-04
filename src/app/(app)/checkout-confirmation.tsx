@@ -11,6 +11,8 @@ import {
   placeOrder,
   getCheckoutQuote,
   getCheckoutOrderStatus,
+  getSavedSubmission,
+  startNewPurchase,
   type CheckoutOrderStatus,
   type CheckoutQuote,
   PlaceOrderError,
@@ -35,12 +37,20 @@ export default function CheckoutConfirmationScreen() {
     priceCents?: string;
     quantity?: string;
     currency?: string;
+    listingProof?: string;
+    size?: string;
+    color?: string;
   }>();
 
+  const listingProof = param(params.listingProof);
   const productUrl = param(params.productUrl);
   const title = param(params.title);
   const image = param(params.image) || null;
   const retailer = param(params.retailer);
+  const variants = [
+    ...(param(params.size) ? [{ label: 'Size', value: param(params.size) }] : []),
+    ...(param(params.color) ? [{ label: 'Color', value: param(params.color) }] : []),
+  ];
   const unitPriceCents = Number(param(params.priceCents));
   const quantity = param(params.quantity) === '' ? 1 : Number(param(params.quantity));
   const pricing = reviewCheckoutPrice(unitPriceCents, quantity, param(params.currency) || null);
@@ -73,17 +83,31 @@ export default function CheckoutConfirmationScreen() {
   const [approvedQuoteId, setApprovedQuoteId] = useState<string | null>(null);
   const [quoteError, setQuoteError] = useState('');
   const [quoteRefresh, setQuoteRefresh] = useState(0);
-  const quoteContext = JSON.stringify([productUrl, quantity, totalCents, pricing.currency, retailerBudgetCents, profile]);
+  const quoteContext = JSON.stringify([productUrl, quantity, variants, listingProof, totalCents, pricing.currency, retailerBudgetCents, profile]);
   const quote = quoteResult?.context === quoteContext ? quoteResult.quote : null;
   const canSubmit = hasApprovedEstimate(quote, approvedQuoteId);
 
 
   useEffect(() => {
     let active = true;
-    getProfile().then((value) => {
+    Promise.all([getProfile(), getSavedSubmission()]).then(([value, saved]) => {
       if (!active) return;
       setProfile(value);
+      if (saved) {
+        submissionLocked.current = true;
+        if (saved.state === 'accepted') setPlacedOrder(saved.order);
+        else {
+          setOutcomeUnknown(true);
+          setError('A previous checkout is unresolved. Check order history and contact support before submitting another purchase.');
+        }
+      }
       setLoadingProfile(false);
+    }).catch(() => {
+      if (!active) return;
+      submissionLocked.current = true;
+      setOutcomeUnknown(true);
+      setLoadingProfile(false);
+      setError('Checkout recovery is unavailable. Check order history before submitting another purchase.');
     });
     return () => {
       active = false;
@@ -108,7 +132,7 @@ export default function CheckoutConfirmationScreen() {
     setApprovedQuoteId(null);
     setQuoteError('');
     if (validProduct && hasAddress && hasCard && retailerBudgetCents && !outcomeUnknown && !submissionLocked.current) {
-      getCheckoutQuote({ productUrl, quantity, itemSubtotalCents: totalCents, currency: 'USD', displayedPriceCents: retailerBudgetCents,
+      getCheckoutQuote({ productUrl, quantity, variants, itemSubtotalCents: totalCents, unitPriceCents, listingProof, currency: 'USD', displayedPriceCents: retailerBudgetCents,
         productName: title, productImage: image, retailer, idempotencyKey }).then(value => {
         if (active) setQuoteResult({ quote: value, context: quoteContext });
       }).catch(() => {
@@ -155,9 +179,9 @@ export default function CheckoutConfirmationScreen() {
     try {
       const result = await placeOrder({
         productUrl,
-        quantity,
+        quantity, variants,
         displayedPriceCents: retailerBudgetCents,
-        itemSubtotalCents: totalCents, currency: 'USD',
+        itemSubtotalCents: totalCents, unitPriceCents, listingProof, currency: 'USD',
         approval: { quoteId: quote!.id, mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: quote!.retailerBudgetCents, currency: quote!.currency },
         productName: title,
         productImage: image,
@@ -186,6 +210,11 @@ export default function CheckoutConfirmationScreen() {
     }
   }
 
+  async function backToShopping() {
+    try { await startNewPurchase(); router.replace('/(app)/chat'); }
+    catch { setStatusError('The prior checkout is unresolved. Contact support before making another purchase.'); }
+  }
+
   if (loadingProfile) {
     return (
       <Screen center edges={['bottom']}>
@@ -208,9 +237,12 @@ export default function CheckoutConfirmationScreen() {
             <>
               <Text style={styles.detailText}>Zinc status: {latestStatus.zincStatus}</Text>
               <Text style={styles.detailText}>Retailer status: {latestStatus.retailerStatus}</Text>
+              {latestStatus.tracking?.map((shipment, index) => (
+                <Text key={index} style={styles.detailText}>Tracking: {shipment.carrier ?? 'Carrier unconfirmed'} {shipment.trackingNumber ?? 'number pending'} · {shipment.status}{shipment.estimatedDeliveryDate ? ` · Estimated delivery ${shipment.estimatedDeliveryDate}` : ''}</Text>
+              ))}
               <Text style={styles.detailText}>Payment status: {latestStatus.payment.status}</Text>
               {latestStatus.simulated ? <Text style={styles.warning}>Sandbox simulation. No real retailer purchase or card charge is confirmed.</Text> : null}
-              {latestStatus.errorCode ? <Text style={styles.error}>Order error: {latestStatus.errorCode}. A higher budget requires new approval.</Text> : null}
+              {latestStatus.errorCode ? <Text style={styles.error}>Order error: {latestStatus.errorCode}. Review the failure before another purchase. A higher budget requires new approval.</Text> : null}
               {latestStatus.payment.actualChargeCents !== null ? (
                 <Text style={styles.detailPrimary}>Actual captured amount: {formatKnownPrice(latestStatus.payment.actualChargeCents, latestStatus.payment.currency)}</Text>
               ) : <Text style={styles.detailText}>Captured amount: Unconfirmed</Text>}
@@ -219,7 +251,7 @@ export default function CheckoutConfirmationScreen() {
           {statusError ? <Text style={styles.warning}>{statusError}</Text> : null}
           {warning ? <Text style={styles.warning}>{warning}</Text> : null}
           <Button label="View order history" onPress={() => router.replace('/(app)/order-history')} />
-          <Button label="Back to shopping" variant="secondary" onPress={() => router.replace('/(app)/chat')} />
+          <Button label="Back to shopping" variant="secondary" onPress={backToShopping} />
         </View>
       </Screen>
     );
@@ -241,6 +273,7 @@ export default function CheckoutConfirmationScreen() {
           <View style={styles.productCopy}>
             <Text style={styles.productTitle}>{title || 'Unknown product'}</Text>
             <Text style={styles.retailer}>{retailer || 'Unknown retailer'}</Text>
+            {variants.map(variant => <Text key={variant.label} style={styles.quantity}>{variant.label}: {variant.value}</Text>)}
             <Text style={styles.price}>Item subtotal: {formatKnownPrice(pricing.itemSubtotalCents, pricing.currency)}</Text>
             {quantity > 1 ? (
               <Text style={styles.quantity}>
@@ -254,8 +287,8 @@ export default function CheckoutConfirmationScreen() {
           <Text style={styles.sectionTitle}>Estimated total</Text>
           <Text style={styles.detailText}>Estimated shipping: Unknown until retailer checkout</Text>
           <Text style={styles.detailText}>Estimated tax: Unknown until retailer checkout</Text>
-          <Text style={styles.detailText}>FetchIt service fee: 0 · no margin</Text>
-          <Text style={styles.detailText}>Zinc fee: USD 1.00</Text>
+          <Text style={styles.detailText}>Service fee: {quote ? formatKnownPrice(quote.serviceFeeCents, quote.currency) : 'pending verified estimate'}</Text>
+
           <Text style={styles.detailText}>Processing fees: Unknown; applicable rate not confirmed</Text>
           <Text style={styles.detailText}>Estimated total. Final shipping, taxes, and processing fees may vary.</Text>
           <Text style={styles.detailText}>Retailer spending limit in USD, including shipping and taxes:</Text>
@@ -267,9 +300,9 @@ export default function CheckoutConfirmationScreen() {
           {quote ? (
             <>
               <Text style={styles.detailPrimary}>{estimateApprovalText(quote.knownCostsCents)}</Text>
-              <Text style={styles.detailText}>Known costs include the item subtotal and Zinc fee. Unknown amounts are additional; this estimate is not an all-in limit.</Text>
-              <Text style={styles.detailText}>Retailer budget: USD {formatUsdCents(quote.retailerBudgetCents)} for items, shipping, and taxes only. Zinc and processing fees are additional, so the card hold and final charge may exceed this budget.</Text>
-              <Text style={styles.detailText}>By approving, you authorize Zinc to hold the retailer budget plus Zinc and applicable processing fees, then charge the actual total after retailer placement. Unused authorization is released; your bank controls availability.</Text>
+              <Text style={styles.detailText}>Known costs include the item subtotal and Service fee. Unknown amounts are additional; this estimate is not an all-in limit.</Text>
+              <Text style={styles.detailText}>Retailer budget: USD {formatUsdCents(quote.retailerBudgetCents)} for items, shipping, and taxes only. Service fee and processing fees are additional, so the card hold and final charge may exceed this budget.</Text>
+              <Text style={styles.detailText}>By approving, you authorize Zinc to hold the retailer budget plus the Service fee and applicable processing fees, then charge the actual total after retailer placement. Unused authorization is released; your bank controls availability.</Text>
               <Button label={approvedQuoteId === quote.id ? 'Estimate approved' : 'Approve estimate'}
                 variant="secondary" disabled={submitting || outcomeUnknown || approvedQuoteId === quote.id}
                 onPress={() => { if (quote.expiresAt > Date.now()) setApprovedQuoteId(quote.id); }} />

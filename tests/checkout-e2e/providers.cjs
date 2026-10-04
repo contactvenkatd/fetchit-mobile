@@ -21,8 +21,9 @@ async function sandboxKey() {
   assert.match(key, /^zn_test_/, 'Only Zinc test keys are allowed');
   return key;
 }
-function sandboxFetch(key) {
+function sandboxFetch(key, verifiedSearchUrls = []) {
   assert.match(key, /^zn_test_/);
+  for (const url of verifiedSearchUrls) assert.match(url, /^https:\/\/www\.(?:etsy\.com\/listing\/\d+\/|amazon\.com\/dp\/[A-Z0-9]{10}$)/);
   return async (url, options = {}) => {
     const target = new URL(url);
     assert.equal(target.origin, 'https://api.zinc.com');
@@ -30,9 +31,11 @@ function sandboxFetch(key) {
     assert.equal(target.search, '');
     if (options.method === 'POST') {
       const body = JSON.parse(options.body);
-      assert.ok(body.products.every(x => /^https:\/\/zinc.com\/shop\/products\/test-[a-z-]+$/.test(x.url)));
+      assert.ok(body.products.every(x => /^https:\/\/zinc.com\/shop\/products\/test-[a-z-]+$/.test(x.url) || verifiedSearchUrls.includes(x.url)));
       assert.equal(body.payment?.mode, 'connect');
-      assert.equal(body.payment.margin.value, 0);
+      assert.equal(body.payment.margin.type, 'flat');
+      assert.ok(Number.isSafeInteger(body.payment.margin.value) && body.payment.margin.value >= 200);
+      assert.ok(body.payment.margin.value <= 10000, 'Sandbox fee limit');
       assert.ok(body.idempotency_key);
     } else assert.ok(!options.method || options.method === 'GET');
     return fetch(url, { ...options, headers: { ...options.headers, Authorization: `Bearer ${key}` },

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Screen } from '@/components/ui/Screen';
 import { useAuth } from '@/lib/auth';
 import { getOrders, money, type Order } from '@/lib/data';
+import { getCheckoutOrderStatus, type CheckoutOrderStatus } from '@/services/orderService';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 // Order History — port of the order-list ("right column") of the web app's
@@ -40,32 +41,45 @@ const STATUS: Record<string, { color: string; label: string }> = {
 };
 function statusInfo(s: string | null): { color: string; label: string } {
   return (
-    STATUS[(s || '').toLowerCase()] || { color: Colors.success, label: s || '—' }
+    STATUS[(s || '').toLowerCase()] || { color: Colors.textMuted, label: s || 'Status unconfirmed' }
   );
 }
 
 export default function OrderHistoryScreen() {
   const router = useRouter();
   const { session } = useAuth();
-  const email = session?.user?.email;
+  const userId = session?.user?.id;
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [fetching, setFetching] = useState(true);
+  const [statuses, setStatuses] = useState<Record<string, CheckoutOrderStatus>>({});
+  const [statusErrors, setStatusErrors] = useState<Record<string, boolean>>({});
 
-  // Load this user's orders (RLS scopes them to the signed-in account).
+  // Recover current provider status after navigation/restart; DB rows are snapshots.
   useEffect(() => {
-    if (!email) return undefined;
+    if (!userId) return undefined;
     let active = true;
+    let timer: ReturnType<typeof setTimeout>;
     setFetching(true);
-    getOrders().then((list) => {
+    setStatuses({});
+    const refresh = async () => {
+      const list = await getOrders();
+      const zincOrders = list.filter(order => order.zincOrderId);
+      const reads = await Promise.allSettled(zincOrders.map(order => getCheckoutOrderStatus(order.id)));
       if (!active) return;
-      setOrders(list);
-      setFetching(false);
-    });
-    return () => {
-      active = false;
+      const latest: Record<string, CheckoutOrderStatus> = {};
+      const errors: Record<string, boolean> = {};
+      reads.forEach((read, index) => {
+        const id = zincOrders[index].id;
+        if (read.status === 'fulfilled') latest[id] = read.value;
+        else errors[id] = true;
+      });
+      setOrders(list); setStatuses(latest); setStatusErrors(errors); setFetching(false);
+      timer = setTimeout(refresh, 30000);
     };
-  }, [email]);
+    void refresh();
+    return () => { active = false; clearTimeout(timer); };
+  }, [userId]);
 
   return (
     <Screen>
@@ -90,7 +104,8 @@ export default function OrderHistoryScreen() {
         ) : (
           <View style={styles.list}>
             {orders.map((o) => {
-              const s = statusInfo(o.status);
+              const latest = statuses[o.id];
+              const s = statusInfo(o.zincOrderId ? latest?.zincStatus ?? null : o.status);
               return (
                 <View key={o.id} style={styles.card}>
                   <View style={styles.thumb}>
@@ -116,10 +131,23 @@ export default function OrderHistoryScreen() {
                         .filter(Boolean)
                         .join('  ·  ')}
                     </Text>
+                    {latest ? (
+                      <>
+                        <Text style={styles.meta}>Retailer status: {latest.retailerStatus}</Text>
+                        <Text style={styles.meta}>Payment status: {latest.payment.status}</Text>
+                        {latest.simulated ? <Text style={styles.meta}>Sandbox simulation; no real shipment or charge confirmed.</Text> : null}
+                        {latest.errorCode ? <Text style={styles.meta}>Order error: {latest.errorCode}</Text> : null}
+                        {latest.tracking?.map((shipment, index) => (
+                          <Text key={index} style={styles.meta}>Tracking: {shipment.carrier ?? 'Carrier unconfirmed'} {shipment.trackingNumber ?? 'number pending'} · {shipment.status}{shipment.estimatedDeliveryDate ? ` · Estimated delivery ${shipment.estimatedDeliveryDate}` : ''}</Text>
+                        ))}
+                      </>
+                    ) : o.zincOrderId ? <Text style={styles.meta}>{statusErrors[o.id] ? 'Provider status unavailable.' : 'Provider status pending.'} Do not submit another purchase to check its outcome.</Text> : null}
                     <View style={styles.prices}>
-                      <Text style={styles.price}>{money(o.orderPrice)}</Text>
+                      <Text style={styles.price}>Recorded amount (estimate): {money(o.orderPrice)}</Text>
                       <Text style={styles.fee}>
-                        + {money(o.serviceFee)} FetchIt fee
+                        {latest?.payment.actualChargeCents !== null && latest?.payment.actualChargeCents !== undefined
+                          ? `Captured: ${latest.payment.currency ?? 'Currency unconfirmed'} ${(latest.payment.actualChargeCents / 100).toFixed(2)}`
+                          : `Service fee: ${money(o.zincOrderId && o.serviceFee !== null ? o.serviceFee + 1 : o.serviceFee)} · captured amount unconfirmed`}
                       </Text>
                     </View>
                   </View>
