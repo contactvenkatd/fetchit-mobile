@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { readQuotaError } from '@/services/quotaService';
 
 export interface ShoppingIntent {
   productQuery: string;
@@ -96,6 +97,10 @@ export async function sendChatMessage(
     };
   } catch (error) {
     if (error instanceof GrokServiceError) throw error;
+    // A used-up monthly AI allowance surfaces as QuotaExceededError, not a
+    // generic failure, so the chat can show the reset date and an upgrade.
+    const quotaError = await readQuotaError(error);
+    if (quotaError) throw quotaError;
     throw new GrokServiceError('Grok chat request failed.', {
       cause: error,
     });
@@ -120,6 +125,8 @@ export async function getZeroResultsSuggestion(
     return data.text.trim();
   } catch (error) {
     if (error instanceof GrokServiceError) throw error;
+    const quotaError = await readQuotaError(error);
+    if (quotaError) throw quotaError;
     throw new GrokServiceError('Grok zero-results suggestion request failed.', {
       cause: error,
     });

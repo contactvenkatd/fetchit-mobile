@@ -317,6 +317,44 @@ directly; that second step is not CAPTCHA-gated once the recovery session exists
    testing track or later).
 7. **Dev build required** either way — the native module isn't in Expo Go.
 
+## Usage quotas (Grok + Zinc spend caps)
+Per-user, per-month hard caps on the two paid upstreams, tracked separately:
+`ai` = one xAI/Grok call (`parse-shopping-intent`, including the zero-results
+suggestion), `zinc` = one product search (`search-products`, which itself fans
+out to Zinc search + details + offers).
+- **DB** (`supabase/migrations/20261007000000_usage_quotas.sql`): `usage_quotas`
+  (PK `user_id, bucket, period_key` = UTC month `YYYY-MM`; users can SELECT their
+  own rows, no client writes), server-only `plan_entitlements` cache, and the
+  service-role-only RPCs `quota_consume` (advisory-locked; a call that would
+  exceed the limit is rejected **without** incrementing) and `quota_status`
+  (read-only). Counters are keyed by period, not plan — a mid-month plan change
+  changes the limit, never the usage.
+- **Plan is verified, never client-supplied.** `user_metadata.plan` is
+  client-writable (`updateUser`), so `_shared/usage-quota.ts` re-derives the plan
+  from Stripe (customers whose Stripe-side `supabase_uid` is this user, same
+  rule as `stripe-webhook`) or from a `family_members` owner whose own Stripe
+  plan is Max. Cached in `plan_entitlements` for `QUOTA_PLAN_CACHE_SECONDS`
+  (default 300); a denied call re-verifies a >60s-old plan so upgrades apply
+  immediately. Stripe outage → last verified plan, else Free.
+- **Limits** = Free baseline × plan (Free 1×, Plus 2×, Pro 5×, Max 25×). Baselines
+  are edge secrets `QUOTA_AI_FREE_UNITS` / `QUOTA_ZINC_FREE_UNITS` (proposed
+  fallbacks 50 / 10 until the real allowance is decided).
+- **Fail policy:** AI fails **open** if the quota system breaks; Zinc fails
+  **closed** (503 `quota_unavailable`). Over limit → **429** `quota_exceeded`
+  with `bucket`, `limit`, `resetsAt`.
+- **Endpoints:** `parse-shopping-intent` and `search-products` now require a
+  session (`authenticateRequest` → 401) and spend a unit after validation,
+  before the paid call. `usage-status` (GET) returns `{ plan, periodKey,
+  resetsAt, ai, zinc }` with `used/limit/remaining`; it never spends.
+- **Client:** `src/services/quotaService.ts` (`QuotaExceededError`,
+  `readQuotaError`, `fetchUsageStatus`). Chat shows the reset date + an
+  **Upgrade** button (→ Account) and keeps quota notices out of saved
+  transcripts/Grok history; Account shows remaining AI messages + searches.
+- **Deploy (manual):** run the migration; deploy `parse-shopping-intent`,
+  `search-products`, `usage-status` (verify JWT ON — see `config.toml`); set the
+  `QUOTA_*` secrets. Tests: `tests/usage-quota.test.js`,
+  `supabase/tests/usage-quota-sql.test.ts` (Deno + PGlite).
+
 ## Status — what's built vs stubbed
 - **Fully built:** Landing (logo + tagline, Sign In/Create Account CTAs, and a
   "Learn More" slide-up bottom sheet — built with RN's `Modal animationType="slide"`,

@@ -1,10 +1,12 @@
-import { useRouter, type Href } from 'expo-router';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect, useRouter, type Href } from 'expo-router';
+import { useCallback, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { Button } from '@/components/ui/Button';
 import { getName, getPlan, signOut, useAuth } from '@/lib/auth';
 import { monthlyDisplay, money } from '@/lib/stripe';
+import { fetchUsageStatus, formatResetDate, type UsageStatus } from '@/services/quotaService';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 const PLAN_COLOR: Record<string, string> = {
@@ -32,6 +34,27 @@ export default function AccountScreen() {
   const { firstName, lastName } = getName(session);
   const name = [firstName, lastName].filter(Boolean).join(' ');
   const perMonth = monthlyDisplay(plan, 'monthly');
+  const [usage, setUsage] = useState<UsageStatus | null>(null);
+  const [usageError, setUsageError] = useState(false);
+
+  // Refresh on every focus so usage is current after chatting or upgrading.
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setUsageError(false);
+      fetchUsageStatus()
+        .then((status) => {
+          if (active) setUsage(status);
+        })
+        .catch((error) => {
+          console.error('Usage status failed:', error);
+          if (active) setUsageError(true);
+        });
+      return () => {
+        active = false;
+      };
+    }, []),
+  );
 
   function confirmSignOut() {
     Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
@@ -66,6 +89,26 @@ export default function AccountScreen() {
             <Button label="Change Plan" variant="secondary" onPress={() => router.push({ pathname: '/(onboarding)/plans', params: { mode: 'change' } })} />
           </View>
 
+          {/* This period's usage of the metered features */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>This Month's Usage</Text>
+            {usage ? (
+              <>
+                <UsageRow label="AI messages" remaining={usage.ai.remaining} limit={usage.ai.limit} />
+                <UsageRow
+                  label="Product searches"
+                  remaining={usage.zinc.remaining}
+                  limit={usage.zinc.limit}
+                />
+                <Text style={styles.sectionSub}>Resets {formatResetDate(usage.resetsAt)}</Text>
+              </>
+            ) : usageError ? (
+              <Text style={styles.sectionSub}>Usage is unavailable right now.</Text>
+            ) : (
+              <ActivityIndicator color={Colors.yellow} style={styles.usageSpinner} />
+            )}
+          </View>
+
           {/* Profile */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Profile</Text>
@@ -92,6 +135,18 @@ export default function AccountScreen() {
         </View>
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function UsageRow({ label, remaining, limit }: { label: string; remaining: number; limit: number }) {
+  const out = remaining <= 0;
+  return (
+    <View style={styles.usageRow}>
+      <Text style={styles.usageLabel}>{label}</Text>
+      <Text style={[styles.usageValue, out && styles.usageValueOut]}>
+        {remaining} of {limit} left
+      </Text>
+    </View>
   );
 }
 
@@ -125,6 +180,16 @@ const styles = StyleSheet.create({
   sectionTitle: { color: Colors.textMuted, fontSize: FontSize.sm, fontWeight: '600' },
   sectionValue: { color: Colors.text, fontSize: FontSize.lg, fontWeight: '700' },
   sectionSub: { color: Colors.textFaint, fontSize: FontSize.sm },
+  usageRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.xs,
+  },
+  usageLabel: { color: Colors.text, fontSize: FontSize.md },
+  usageValue: { color: Colors.text, fontSize: FontSize.md, fontWeight: '700' },
+  usageValueOut: { color: Colors.error },
+  usageSpinner: { alignSelf: 'flex-start', marginVertical: Spacing.sm },
   menu: {
     backgroundColor: Colors.surface,
     borderRadius: Radius.lg,

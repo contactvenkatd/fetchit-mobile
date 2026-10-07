@@ -1,4 +1,5 @@
 import { signListingPrice } from '../_shared/listing-price.ts';
+import { authenticateRequest, consumeQuota, quotaExceededBody } from '../_shared/usage-quota.ts';
 const ZINC_SEARCH_URL = "https://api.zinc.com/search";
 const ZINC_RETAILER_SEARCH_URL = "https://api.zinc.com/products/search";
 
@@ -155,6 +156,11 @@ Deno.serve(async (req) => {
     return failure("method_not_allowed", "Only POST requests are supported.", 405);
   }
 
+  const user = await authenticateRequest(req);
+  if (!user) {
+    return failure("unauthorized", "Your session is invalid or expired.", 401);
+  }
+
   let body: unknown;
   try {
     body = await req.json();
@@ -176,6 +182,14 @@ Deno.serve(async (req) => {
   const preferred = body.retailerPreference?.trim().toLowerCase();
   if (preferred && !['amazon', 'amazon us', 'amazon.com'].includes(preferred)) {
     return failure('unsupported_retailer', 'Search currently supports Amazon US only.', 409);
+  }
+  // Spend one Zinc unit (one search) before any paid Zinc request. Fails
+  // CLOSED if the quota system itself is unavailable to protect spend.
+  const quota = await consumeQuota(user, 'zinc');
+  if (!quota.allowed) {
+    return quota.reason === 'exceeded'
+      ? json(quotaExceededBody(quota.snapshot), 429)
+      : failure('quota_unavailable', 'Product search is temporarily unavailable. Please try again in a moment.', 503);
   }
   try {
     const read = async (path: string) => {

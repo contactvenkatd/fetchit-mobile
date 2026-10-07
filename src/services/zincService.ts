@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { readQuotaError } from '@/services/quotaService';
 import type { ShoppingIntent } from '@/services/grokService';
 
 export interface ProductResult {
@@ -57,6 +58,8 @@ export async function searchProducts(intent: ShoppingIntent): Promise<ProductRes
     return results;
   } catch (error) {
     if (error instanceof ZincServiceError) throw error;
+    const quotaError = await readQuotaError(error);
+    if (quotaError) throw quotaError;
     throw new ZincServiceError('Zinc product search failed.', { cause: error });
   }
 }

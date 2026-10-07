@@ -15,6 +15,13 @@ verify_jwt = false
 [functions.parse-shopping-intent]
 verify_jwt = true
 
+# Usage quotas: handler auth.getUser checks back these gateway gates.
+[functions.search-products]
+verify_jwt = true
+
+[functions.usage-status]
+verify_jwt = true
+
 [functions.stripe-webhook]
 verify_jwt = false
 

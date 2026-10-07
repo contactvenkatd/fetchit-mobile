@@ -31,6 +31,7 @@ import {
   GrokServiceError,
   sendChatMessage,
 } from '@/services/grokService';
+import { QuotaExceededError } from '@/services/quotaService';
 import {
   searchProducts,
   type ProductResult,
@@ -47,7 +48,12 @@ type Msg = {
   size?: string | null;
   color?: string | null;
   contextText?: string;
+  /** Monthly AI/search allowance used up — shows an Upgrade action; never persisted. */
+  quotaExceeded?: boolean;
 };
+
+/** Quota notices are UI-only: keep them out of Grok history and saved transcripts. */
+const conversational = (list: Msg[]) => list.filter((m) => !m.quotaExceeded);
 
 const SUGGESTIONS = [
   'A gift for my mom, around $50',
@@ -200,7 +206,7 @@ export default function ChatScreen() {
     setSending(true);
 
     try {
-      const result = await sendChatMessage(body, buildChatHistory(messages));
+      const result = await sendChatMessage(body, buildChatHistory(conversational(messages)));
       const assistantMessage: Msg = {
         id: nextId(),
         role: 'assistant',
@@ -223,7 +229,7 @@ export default function ChatScreen() {
             try {
               zeroResultsText = await getZeroResultsSuggestion(
                 result.intent.productQuery,
-                buildChatHistory(completedMessages),
+                buildChatHistory(conversational(completedMessages)),
               );
             } catch (suggestionError) {
               zeroResultsText = `Hmm, nothing came up for “${result.intent.productQuery}.” Want to try a broader or more specific product name?`;
@@ -257,9 +263,10 @@ export default function ChatScreen() {
             id: nextId(),
             role: 'assistant',
             text:
-              searchError instanceof ZincServiceError
+              searchError instanceof QuotaExceededError || searchError instanceof ZincServiceError
                 ? searchError.userMessage
                 : "I couldn't search for products right now. Please try again in a moment.",
+            quotaExceeded: searchError instanceof QuotaExceededError,
           });
           setMessages([...completedMessages]);
           console.error('Product search failed:', searchError);
@@ -271,7 +278,7 @@ export default function ChatScreen() {
       // Incognito transcripts remain exclusively in local React state.
       if (incognito) return;
 
-      const storedMessages: StoredMessage[] = completedMessages.map(
+      const storedMessages: StoredMessage[] = conversational(completedMessages).map(
         ({ role, text, contextText }) => ({ role, text, contextText }),
       );
       setPersisting(true);
@@ -290,11 +297,12 @@ export default function ChatScreen() {
         setPersisting(false);
       }
     } catch (error) {
+      const quotaExceeded = error instanceof QuotaExceededError;
       const text =
-        error instanceof GrokServiceError
+        error instanceof QuotaExceededError || error instanceof GrokServiceError
           ? error.userMessage
           : "I couldn't respond right now. Please try again in a moment.";
-      setMessages((prev) => [...prev, { id: nextId(), role: 'assistant', text }]);
+      setMessages((prev) => [...prev, { id: nextId(), role: 'assistant', text, quotaExceeded }]);
       console.error('Chat request failed:', error);
     } finally {
       setSending(false);
@@ -374,6 +382,15 @@ export default function ChatScreen() {
                   style={item.role === 'user' ? styles.userText : styles.aiText}>
                   {item.text}
                 </Text>
+                {item.quotaExceeded ? (
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Upgrade your plan"
+                    onPress={() => router.push('/(app)/account')}
+                    style={({ pressed }) => [styles.upgradeBtn, pressed && styles.upgradeBtnPressed]}>
+                    <Text style={styles.upgradeText}>Upgrade</Text>
+                  </Pressable>
+                ) : null}
                 {item.products?.map((product) => (
                   <Pressable
                     key={product.productId}
@@ -548,6 +565,16 @@ const styles = StyleSheet.create({
   },
   userText: { color: Colors.charcoal, fontSize: FontSize.md },
   aiText: { color: Colors.text, fontSize: FontSize.md },
+  upgradeBtn: {
+    alignSelf: 'flex-start',
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    borderRadius: Radius.pill,
+    backgroundColor: Colors.yellow,
+  },
+  upgradeBtnPressed: { opacity: 0.8 },
+  upgradeText: { color: Colors.charcoal, fontSize: FontSize.sm, fontWeight: '700' },
   productResultsBubble: {
     alignSelf: 'stretch',
     maxWidth: '100%',

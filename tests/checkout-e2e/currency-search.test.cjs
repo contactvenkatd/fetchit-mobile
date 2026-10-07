@@ -2,11 +2,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load, backend, mount, mountHistory, localOrderId, profile } = require('./harness.cjs');
 const intent = { productQuery: 'Lodge cast iron skillet', quantity: 2, size: '12 inch', color: null, priceCeiling: null, retailerPreference: null };
+// search-products authenticates and spends a Zinc quota unit before Zinc;
+// these isolated tests stand in an authenticated user with quota remaining.
+const quotaAllowed = {
+  authenticateRequest: async () => ({ id: 'user_fixture' }),
+  consumeQuota: async () => ({ allowed: true, snapshot: null }),
+  quotaExceededBody: () => ({}),
+};
 function search(fetcher, key = 'zn_test_fixture') {
   let handler;
   const signing = load('supabase/functions/_shared/listing-price.ts');
   load('supabase/functions/search-products/index.ts', {}, {
-    Response, Request, URL, fetch: fetcher, signListingPrice: signing.signListingPrice,
+    Response, Request, URL, fetch: fetcher, signListingPrice: signing.signListingPrice, ...quotaAllowed,
     Deno: { env: { get: name => ({ ZINC_API_KEY: key, SUPABASE_SERVICE_ROLE_KEY: 'mock-signing-key' })[name] }, serve: fn => { handler = fn; } },
   }, true);
   return async (input = intent) => {
@@ -122,7 +129,7 @@ if (process.env.RUN_REAL_CURRENCY_SEARCH === '1') {
   test('Requested Amazon variant must match actual details; other retailers are not relabeled', async () => {
     assert.equal((await search(provider())({ ...intent, size: 'Unsupported size' })).length, 0);
     let handler; load('supabase/functions/search-products/index.ts', {}, {
-      Response, Request, URL, signListingPrice: () => null,
+      Response, Request, URL, signListingPrice: () => null, ...quotaAllowed,
       Deno: { env: { get: () => 'fixture' }, serve: fn => { handler = fn; } },
       fetch: () => { throw new Error('No other retailer requests'); },
     }, true);

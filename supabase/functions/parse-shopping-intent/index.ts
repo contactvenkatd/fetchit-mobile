@@ -1,3 +1,5 @@
+import { authenticateRequest, consumeQuota, quotaExceededBody } from '../_shared/usage-quota.ts';
+
 const XAI_CHAT_COMPLETIONS_URL = "https://api.x.ai/v1/chat/completions";
 const GROK_MODEL = "grok-4.3";
 
@@ -133,6 +135,11 @@ Deno.serve(async (req) => {
     return failure("method_not_allowed", "Only POST requests are supported.", 405);
   }
 
+  const user = await authenticateRequest(req);
+  if (!user) {
+    return failure("unauthorized", "Your session is invalid or expired.", 401);
+  }
+
   let body: { message?: unknown; history?: unknown; searchFailure?: unknown };
   try {
     body = await req.json();
@@ -159,6 +166,13 @@ Deno.serve(async (req) => {
   const apiKey = Deno.env.get("XAI_API_KEY")?.trim();
   if (!apiKey) {
     return failure("service_not_configured", "Shopping intent service is not configured.", 503);
+  }
+
+  // Spend one AI unit before the paid Grok call. Fails open if the quota
+  // system itself is unavailable so chat keeps working.
+  const quota = await consumeQuota(user, "ai");
+  if (!quota.allowed && quota.reason === "exceeded") {
+    return json(quotaExceededBody(quota.snapshot), 429);
   }
 
   try {
