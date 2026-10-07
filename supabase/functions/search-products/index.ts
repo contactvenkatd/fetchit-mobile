@@ -1,5 +1,5 @@
 import { signListingPrice } from '../_shared/listing-price.ts';
-import { authenticateRequest, consumeQuota, quotaExceededBody } from '../_shared/usage-quota.ts';
+import { authenticateRequest, chargeQuota, checkQuota, quotaExceededBody, ZINC_CALL_MICROCENTS } from '../_shared/usage-quota.ts';
 const ZINC_SEARCH_URL = "https://api.zinc.com/search";
 const ZINC_RETAILER_SEARCH_URL = "https://api.zinc.com/products/search";
 
@@ -183,20 +183,24 @@ Deno.serve(async (req) => {
   if (preferred && !['amazon', 'amazon us', 'amazon.com'].includes(preferred)) {
     return failure('unsupported_retailer', 'Search currently supports Amazon US only.', 409);
   }
-  // Spend one Zinc unit (one search) before any paid Zinc request. Fails
-  // CLOSED if the quota system itself is unavailable to protect spend.
-  const quota = await consumeQuota(user, 'zinc');
+  // Refuse before any paid Zinc request once this month's search budget is
+  // spent. Fails CLOSED if the quota system itself is unavailable to protect
+  // spend. The actual cost (successful calls × $0.01) is debited afterwards.
+  const quota = await checkQuota(user, 'zinc');
   if (!quota.allowed) {
     return quota.reason === 'exceeded'
       ? json(quotaExceededBody(quota.snapshot), 429)
       : failure('quota_unavailable', 'Product search is temporarily unavailable. Please try again in a moment.', 503);
   }
+  // Zinc bills each successful data call, so count them as they return.
+  let billedZincCalls = 0;
   try {
     const read = async (path: string) => {
       const response = await fetch(new URL(path, 'https://api.zinc.com'), {
         headers: { Authorization: `Bearer ${apiKey}` }, redirect: 'error', signal: AbortSignal.timeout(15000),
       });
       if (!response.ok) throw new Error('amazon_data_unavailable');
+      billedZincCalls += 1;
       return await response.json();
     };
     const searchUrl = new URL(ZINC_RETAILER_SEARCH_URL);
@@ -260,5 +264,7 @@ Deno.serve(async (req) => {
     }), scope: 'amazon-us' });
   } catch {
     return failure('product_search_failed', 'Amazon US search data is unavailable. No purchase was submitted.', 502);
+  } finally {
+    await chargeQuota(user, 'zinc', billedZincCalls * ZINC_CALL_MICROCENTS, quota);
   }
 });

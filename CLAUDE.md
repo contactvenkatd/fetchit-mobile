@@ -317,43 +317,50 @@ directly; that second step is not CAPTCHA-gated once the recovery session exists
    testing track or later).
 7. **Dev build required** either way — the native module isn't in Expo Go.
 
-## Usage quotas (Grok + Zinc spend caps)
-Per-user, per-month hard caps on the two paid upstreams, tracked separately:
-`ai` = one xAI/Grok call (`parse-shopping-intent`, including the zero-results
-suggestion), `zinc` = one product search (`search-products`, which itself fans
-out to Zinc search + details + offers).
-- **DB** (`supabase/migrations/20261007000000_usage_quotas.sql`): `usage_quotas`
-  (PK `user_id, bucket, period_key` = UTC month `YYYY-MM`; users can SELECT their
-  own rows, no client writes), server-only `plan_entitlements` cache, and the
-  service-role-only RPCs `quota_consume` (advisory-locked; a call that would
-  exceed the limit is rejected **without** incrementing) and `quota_status`
-  (read-only). Counters are keyed by period, not plan — a mid-month plan change
-  changes the limit, never the usage.
-- **Plan is verified, never client-supplied.** `user_metadata.plan` is
-  client-writable (`updateUser`), so `_shared/usage-quota.ts` re-derives the plan
-  from Stripe (customers whose Stripe-side `supabase_uid` is this user, same
-  rule as `stripe-webhook`) or from a `family_members` owner whose own Stripe
+## Usage quotas (Grok + Zinc dollar budgets)
+Per-user, per-month **dollar** budgets on the two paid upstreams, metered at
+**actual cost** and tracked separately: `ai` = xAI/Grok calls
+(`parse-shopping-intent`, incl. the zero-results suggestion), `zinc` = Zinc
+data calls (`search-products`: search + details + offers, $0.01 each).
+- **DB** (`20261007000000_usage_quotas.sql`, then `20261008000000_usage_quotas_cents.sql`):
+  `usage_quotas.cents_used` is `numeric(14,6)` — exact decimal, because a
+  typical Grok call is ~0.275¢ and integer cents can't hold it. PK
+  `(user_id, bucket, period_key)` with UTC month `YYYY-MM`; users can SELECT
+  their own rows, no client writes. Service-role-only RPCs:
+  `quota_consume(user, bucket, limit_cents, cost_cents, enforce)` (advisory
+  lock; `enforce=true` rejects without adding unless budget remains and
+  prior + cost ≤ limit; `enforce=false` always records spend already incurred)
+  and read-only `quota_status(user, bucket, limit_cents)`. Spend is keyed by
+  period, not plan, so plan changes never reset it.
+- **Flow:** `checkQuota()` before the paid call (429 once spent), then
+  `chargeQuota()` with the real cost: Grok from `usage` tokens (output billed as
+  `total_tokens − prompt_tokens` so reasoning counts once; cached prompt tokens
+  at the cached rate; OK-without-usage → worst-case 1.01875¢); Zinc = successful
+  (2xx) calls counted as they return, charged in a `finally` so error paths are
+  charged too. A request that passes the check is charged in full, so overshoot
+  is bounded by one in-flight request per caller (≤16¢ search, ~1¢ chat).
+- **Plan is verified, never client-supplied** (`user_metadata.plan` is
+  client-writable): Stripe customers whose Stripe-side `supabase_uid` matches
+  (same rule as `stripe-webhook`), or a `family_members` owner whose own Stripe
   plan is Max. Cached in `plan_entitlements` for `QUOTA_PLAN_CACHE_SECONDS`
-  (default 300); a denied call re-verifies a >60s-old plan so upgrades apply
-  immediately. Stripe outage → last verified plan, else Free.
-- **Limits** = Free baseline × plan (Free 1×, Plus 2×, Pro 5×, Max 25×). Baselines
-  are edge secrets `QUOTA_AI_FREE_UNITS` / `QUOTA_ZINC_FREE_UNITS` (proposed
-  fallbacks 50 / 10 until the real allowance is decided).
-- **Fail policy:** AI fails **open** if the quota system breaks; Zinc fails
-  **closed** (503 `quota_unavailable`). Over limit → **429** `quota_exceeded`
-  with `bucket`, `limit`, `resetsAt`.
-- **Endpoints:** `parse-shopping-intent` and `search-products` now require a
-  session (`authenticateRequest` → 401) and spend a unit after validation,
-  before the paid call. `usage-status` (GET) returns `{ plan, periodKey,
-  resetsAt, ai, zinc }` with `used/limit/remaining`; it never spends.
-- **Client:** `src/services/quotaService.ts` (`QuotaExceededError`,
-  `readQuotaError`, `fetchUsageStatus`). Chat shows the reset date + an
-  **Upgrade** button (→ Account) and keeps quota notices out of saved
-  transcripts/Grok history; Account shows remaining AI messages + searches.
-- **Deploy (manual):** run the migration; deploy `parse-shopping-intent`,
-  `search-products`, `usage-status` (verify JWT ON — see `config.toml`); set the
-  `QUOTA_*` secrets. Tests: `tests/usage-quota.test.js`,
-  `supabase/tests/usage-quota-sql.test.ts` (Deno + PGlite).
+  (default 300); a denied check re-verifies a >60s-old plan.
+- **Budgets per bucket** (COGS = price × (1 − margin), split 50/50), explicit
+  per plan via `QUOTA_<AI|ZINC>_<FREE|PLUS|PRO|MAX>_CENTS` secrets; defaults:
+  Free 50¢ (a $1.00/user loss-leader cap), Plus 224.55¢ (10% margin), Pro
+  874.5625¢ (12.5%), Max 3999.6¢ (20%). Grok rates (grok-4.3) live in
+  `_shared/usage-quota.ts` — update them if `GROK_MODEL` changes.
+- **Fail policy:** AI fails **open**, Zinc fails **closed** (503
+  `quota_unavailable`). Over budget → **429** `quota_exceeded` with `bucket`,
+  `usedCents`, `limitCents`, `resetsAt`. A failed post-call debit is logged,
+  never surfaced.
+- **Endpoints:** `parse-shopping-intent` / `search-products` require a session
+  (401). `usage-status` (GET) returns `{ plan, periodKey, resetsAt, ai, zinc }`
+  with `usedCents/limitCents/remainingCents`.
+- **Client:** `src/services/quotaService.ts` (`QuotaExceededError`, `formatUsd`,
+  `fetchUsageStatus`). Chat names the spent budget in dollars + reset date with
+  an **Upgrade** button; Account shows $ left / $ used of $ limit per budget.
+- **Tests:** `tests/usage-quota.test.js`, `supabase/tests/usage-quota-sql.test.ts`
+  (Deno + PGlite).
 
 ## Status — what's built vs stubbed
 - **Fully built:** Landing (logo + tagline, Sign In/Create Account CTAs, and a

@@ -1,4 +1,11 @@
-import { authenticateRequest, consumeQuota, quotaExceededBody } from '../_shared/usage-quota.ts';
+import {
+  authenticateRequest,
+  chargeQuota,
+  checkQuota,
+  GROK_FALLBACK_MICROCENTS,
+  grokCostMicrocents,
+  quotaExceededBody,
+} from '../_shared/usage-quota.ts';
 
 const XAI_CHAT_COMPLETIONS_URL = "https://api.x.ai/v1/chat/completions";
 const GROK_MODEL = "grok-4.3";
@@ -38,6 +45,13 @@ type GrokResponse = {
     };
   }>;
   error?: { message?: string };
+  usage?: {
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    prompt_tokens_details?: { cached_tokens?: number } | null;
+    completion_tokens_details?: { reasoning_tokens?: number } | null;
+  };
 };
 
 type HistoryMessage = { role: "user" | "assistant"; content: string };
@@ -168,9 +182,10 @@ Deno.serve(async (req) => {
     return failure("service_not_configured", "Shopping intent service is not configured.", 503);
   }
 
-  // Spend one AI unit before the paid Grok call. Fails open if the quota
-  // system itself is unavailable so chat keeps working.
-  const quota = await consumeQuota(user, "ai");
+  // Refuse the paid Grok call once this month's AI budget is spent. Fails open
+  // if the quota system itself is unavailable so chat keeps working. The
+  // actual token cost is debited after the call returns.
+  const quota = await checkQuota(user, "ai");
   if (!quota.allowed && quota.reason === "exceeded") {
     return json(quotaExceededBody(quota.snapshot), 429);
   }
@@ -215,7 +230,19 @@ Deno.serve(async (req) => {
       }),
     });
 
-    const raw = (await response.json()) as GrokResponse;
+    let parsed: GrokResponse | null = null;
+    try {
+      parsed = (await response.json()) as GrokResponse;
+    } finally {
+      // Debit the real cost from the response's usage tokens. An OK response
+      // without usage is charged the measured worst case; an error response
+      // without usage is treated as unbilled.
+      const cost = grokCostMicrocents(parsed?.usage) ??
+        (response.ok ? GROK_FALLBACK_MICROCENTS : 0);
+      await chargeQuota(user, "ai", cost, quota);
+    }
+    // Reached only when response.json() succeeded.
+    const raw = parsed as GrokResponse;
     if (!response.ok) {
       return failure(
         "xai_request_failed",

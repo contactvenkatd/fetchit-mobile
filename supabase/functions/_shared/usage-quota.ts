@@ -1,12 +1,17 @@
-// Per-user monthly quotas for the paid upstreams. 'ai' = one xAI/Grok call
-// (parse-shopping-intent); 'zinc' = one product search (search-products, which
-// fans out to Zinc search + details + offers). Counters live in
-// public.usage_quotas and are spent atomically by the quota_consume RPC.
+// Per-user monthly DOLLAR budgets for the paid upstreams, metered at actual
+// cost: 'ai' = xAI/Grok (parse-shopping-intent), 'zinc' = Zinc data calls
+// (search-products). Spend lives in public.usage_quotas.cents_used (exact
+// numeric cents) and moves only through the quota_consume RPC.
 //
-// Limits = per-bucket Free baseline (env, tunable without a code change) ×
-// plan multiplier. The plan is VERIFIED here against Stripe (and the family
+// Flow per paid request: checkQuota() before the upstream call (rejects when
+// the budget is used up), then chargeQuota() with the call's ACTUAL cost once
+// it is known. A request that passes the check is charged in full even if it
+// overshoots the remaining budget — overshoot is bounded by one request
+// (≤16¢ for a search, ~1¢ for a chat call).
+//
+// The plan sizing the budget is VERIFIED against Stripe (and the family
 // owner's Stripe plan for max_family members) — user_metadata.plan is
-// client-writable and is never used to size a quota.
+// client-writable and is never used.
 import { createClient, type SupabaseClient, type User } from 'npm:@supabase/supabase-js@2';
 import { paymentStripe, stripeIsLive } from './stripe-backend.ts';
 import { subscriptionState } from './stripe-subscription-state.mjs';
@@ -14,26 +19,49 @@ import { subscriptionState } from './stripe-subscription-state.mjs';
 export type QuotaBucket = 'ai' | 'zinc';
 export type QuotaPlan = 'Free' | 'Plus' | 'Pro' | 'Max';
 
-export const PLAN_MULTIPLIER: Record<QuotaPlan, number> = { Free: 1, Plus: 2, Pro: 5, Max: 25 };
+const PLANS: QuotaPlan[] = ['Free', 'Plus', 'Pro', 'Max'];
+const PLAN_RANK: Record<QuotaPlan, number> = { Free: 0, Plus: 1, Pro: 2, Max: 3 };
 
-// Proposed starting baselines (Free tier, per UTC calendar month) used only
-// when the env var is unset or invalid. Override with the
-// QUOTA_AI_FREE_UNITS / QUOTA_ZINC_FREE_UNITS edge-function secrets.
-const DEFAULT_FREE_UNITS: Record<QuotaBucket, number> = { ai: 50, zinc: 10 };
-const BASELINE_ENV: Record<QuotaBucket, string> = { ai: 'QUOTA_AI_FREE_UNITS', zinc: 'QUOTA_ZINC_FREE_UNITS' };
-const MAX_BASELINE = 1_000_000;
+// Monthly budget per bucket, in cents. COGS = price × (1 − margin), split
+// 50/50 between Zinc and Grok:
+//   Plus  $4.99 × 0.90  = $4.491    → 224.55¢ each
+//   Pro  $19.99 × 0.875 = $17.49125 → 874.5625¢ each
+//   Max  $99.99 × 0.80  = $79.992   → 3999.6¢ each
+//   Free: capped loss-leader of $1.00/user/month → 50¢ each.
+// Fallbacks only: override with QUOTA_<AI|ZINC>_<FREE|PLUS|PRO|MAX>_CENTS.
+export const DEFAULT_BUDGET_CENTS: Record<QuotaPlan, Record<QuotaBucket, number>> = {
+  Free: { ai: 50, zinc: 50 },
+  Plus: { ai: 224.55, zinc: 224.55 },
+  Pro: { ai: 874.5625, zinc: 874.5625 },
+  Max: { ai: 3999.6, zinc: 3999.6 },
+};
+const MAX_BUDGET_CENTS = 100_000_000;
+
+// Cost arithmetic is done in integer micro-cents (1e-6 ¢) so it is exact, then
+// sent to Postgres numeric as a decimal string.
+const MICROCENTS_PER_CENT = 1_000_000;
+export const ZINC_CALL_MICROCENTS = 1 * MICROCENTS_PER_CENT; // $0.01 per successful data call
+
+// grok-4.3 per-token rates in micro-cents: $1.25/M input = 125 µ¢/token,
+// $0.20/M cached input = 20, $2.50/M output = 250. Prompts of ≥200k tokens
+// bill every token at double rates.
+const GROK_RATES = { input: 125, cached: 20, output: 250, longContextTokens: 200_000 };
+// Charged when an OK response has no usage block: the measured worst case
+// (~4,150 input + ~2,000 output tokens ≈ 1.019¢).
+export const GROK_FALLBACK_MICROCENTS = 4_150 * GROK_RATES.input + 2_000 * GROK_RATES.output;
+
 // How long a Stripe-verified plan is reused before re-checking Stripe.
 const DEFAULT_PLAN_CACHE_SECONDS = 300;
-// A denied call re-verifies a cached plan older than this, so an upgrade
+// A denied check re-verifies a cached plan older than this, so an upgrade
 // takes effect right away instead of after the cache expires.
 const DENIED_RECHECK_SECONDS = 60;
 
 export interface QuotaSnapshot {
   bucket: QuotaBucket;
   plan: QuotaPlan;
-  used: number;
-  limit: number;
-  remaining: number;
+  usedCents: number;
+  limitCents: number;
+  remainingCents: number;
   periodKey: string;
   resetsAt: string;
 }
@@ -43,16 +71,53 @@ export type QuotaDecision =
   | { allowed: false; reason: 'exceeded'; snapshot: QuotaSnapshot }
   | { allowed: false; reason: 'unavailable' };
 
-export function freeBaseline(bucket: QuotaBucket): number {
-  const raw = Deno.env.get(BASELINE_ENV[bucket])?.trim();
+export function budgetCents(bucket: QuotaBucket, plan: QuotaPlan): number {
+  const name = `QUOTA_${bucket.toUpperCase()}_${plan.toUpperCase()}_CENTS`;
+  const raw = Deno.env.get(name)?.trim();
   const parsed = raw ? Number(raw) : NaN;
-  if (Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= MAX_BASELINE) return parsed;
-  if (raw) console.warn(`usage-quota: ignoring invalid ${BASELINE_ENV[bucket]}`);
-  return DEFAULT_FREE_UNITS[bucket];
+  if (Number.isFinite(parsed) && parsed >= 0 && parsed <= MAX_BUDGET_CENTS) return parsed;
+  if (raw) console.warn(`usage-quota: ignoring invalid ${name}`);
+  return DEFAULT_BUDGET_CENTS[plan][bucket];
 }
 
-export function quotaLimit(bucket: QuotaBucket, plan: QuotaPlan): number {
-  return freeBaseline(bucket) * PLAN_MULTIPLIER[plan];
+/** Integer micro-cents → exact decimal cents string for Postgres numeric. */
+export function microcentsToCents(micro: number): string {
+  const value = Math.max(0, Math.round(micro));
+  return `${Math.floor(value / MICROCENTS_PER_CENT)}.${String(value % MICROCENTS_PER_CENT).padStart(6, '0')}`;
+}
+
+type GrokUsage = {
+  prompt_tokens?: unknown;
+  completion_tokens?: unknown;
+  total_tokens?: unknown;
+  prompt_tokens_details?: { cached_tokens?: unknown } | null;
+  completion_tokens_details?: { reasoning_tokens?: unknown } | null;
+};
+
+const count = (value: unknown) =>
+  typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+
+/**
+ * Actual cost of one grok-4.3 chat completion from its `usage` block, in
+ * micro-cents. cached_tokens is a subset of prompt_tokens (xAI prompt-caching
+ * docs). Reasoning tokens bill at the output rate; xAI's docs don't say
+ * whether completion_tokens already includes them, so billed output is
+ * total_tokens − prompt_tokens, which is right either way and never counts
+ * reasoning twice. Returns null when usage is missing or malformed.
+ */
+export function grokCostMicrocents(usage: GrokUsage | null | undefined): number | null {
+  const prompt = count(usage?.prompt_tokens);
+  const completion = count(usage?.completion_tokens);
+  if (prompt === null || completion === null) return null;
+  const cached = Math.min(count(usage?.prompt_tokens_details?.cached_tokens) ?? 0, prompt);
+  const reasoning = count(usage?.completion_tokens_details?.reasoning_tokens) ?? 0;
+  const total = count(usage?.total_tokens);
+  const output = total !== null && total >= prompt + completion
+    ? total - prompt
+    : completion + reasoning;
+  const multiplier = prompt >= GROK_RATES.longContextTokens ? 2 : 1;
+  return multiplier *
+    ((prompt - cached) * GROK_RATES.input + cached * GROK_RATES.cached + output * GROK_RATES.output);
 }
 
 function planCacheSeconds(): number {
@@ -109,7 +174,7 @@ async function stripePlan(user: User): Promise<QuotaPlan> {
     }
     const state = subscriptionState(subscriptions);
     const plan = state?.plan as QuotaPlan | undefined;
-    if (plan && PLAN_MULTIPLIER[plan] > PLAN_MULTIPLIER[best]) best = plan;
+    if (plan && PLANS.includes(plan) && PLAN_RANK[plan] > PLAN_RANK[best]) best = plan;
   }
   return best;
 }
@@ -142,9 +207,9 @@ export async function resolveVerifiedPlan(
   const { data: cached } = await admin.from('plan_entitlements')
     .select('plan, verified_at').eq('user_id', user.id).maybeSingle();
   const cachedAt = cached ? Date.parse(cached.verified_at) : NaN;
-  if (cached && Number.isFinite(cachedAt) && Date.now() - cachedAt <= maxAgeSeconds * 1000 &&
-      cached.plan in PLAN_MULTIPLIER) {
-    return { plan: cached.plan as QuotaPlan, verifiedAt: cachedAt };
+  const cachedPlan = cached && PLANS.includes(cached.plan) ? cached.plan as QuotaPlan : null;
+  if (cachedPlan && Number.isFinite(cachedAt) && Date.now() - cachedAt <= maxAgeSeconds * 1000) {
+    return { plan: cachedPlan, verifiedAt: cachedAt };
   }
 
   try {
@@ -162,37 +227,47 @@ export async function resolveVerifiedPlan(
   } catch {
     // Never log raw Stripe errors or customer data.
     console.warn('usage-quota: plan verification unavailable; using last verified plan');
-    const fallback = cached && cached.plan in PLAN_MULTIPLIER ? cached.plan as QuotaPlan : 'Free';
-    return { plan: fallback, verifiedAt: Number.isFinite(cachedAt) ? cachedAt : 0 };
+    return { plan: cachedPlan ?? 'Free', verifiedAt: Number.isFinite(cachedAt) ? cachedAt : 0 };
   }
 }
 
-type ConsumeRow = { allowed: boolean; used: number; unit_limit: number; period: string; resets_at: string };
+type ConsumeRow = {
+  allowed: boolean; cents_used: number | string; limit_cents: number | string;
+  remaining_cents: number | string; period: string; resets_at: string;
+};
 
-async function consume(admin: SupabaseClient, userId: string, bucket: QuotaBucket, limit: number): Promise<ConsumeRow> {
+async function consume(
+  admin: SupabaseClient, userId: string, bucket: QuotaBucket, limitCents: number,
+  costMicrocents: number, enforce: boolean,
+): Promise<ConsumeRow> {
   const { data, error } = await admin.rpc('quota_consume', {
-    p_user_id: userId, p_bucket: bucket, p_limit: limit, p_units: 1,
+    p_user_id: userId, p_bucket: bucket, p_limit_cents: limitCents,
+    p_cost_cents: microcentsToCents(costMicrocents), p_enforce: enforce,
   });
   const row = Array.isArray(data) ? data[0] : data;
   if (error || !row || typeof row.allowed !== 'boolean') throw new Error('quota_consume failed');
   return row as ConsumeRow;
 }
 
-function snapshot(bucket: QuotaBucket, plan: QuotaPlan, row: { used: number; period: string; resets_at: string }, limit: number): QuotaSnapshot {
+function snapshot(
+  bucket: QuotaBucket, plan: QuotaPlan,
+  row: { cents_used: number | string; period: string; resets_at: string }, limitCents: number,
+): QuotaSnapshot {
+  const usedCents = Number(row.cents_used);
   return {
-    bucket, plan, used: row.used, limit,
-    remaining: Math.max(0, limit - row.used),
+    bucket, plan, usedCents, limitCents,
+    remainingCents: Math.max(0, limitCents - usedCents),
     periodKey: row.period,
     resetsAt: new Date(row.resets_at).toISOString(),
   };
 }
 
 /**
- * Spend one unit of `bucket` for `user` before calling the paid upstream.
+ * Pre-flight before a paid upstream call: allowed only while budget remains.
  * Fail policy when the quota system itself breaks: 'ai' fails OPEN (chat keeps
  * working), 'zinc' fails CLOSED (protects spend).
  */
-export async function consumeQuota(user: User, bucket: QuotaBucket): Promise<QuotaDecision> {
+export async function checkQuota(user: User, bucket: QuotaBucket): Promise<QuotaDecision> {
   const failOpen = bucket === 'ai';
   const admin = serviceClient();
   if (!admin) {
@@ -201,16 +276,16 @@ export async function consumeQuota(user: User, bucket: QuotaBucket): Promise<Quo
   }
   try {
     let { plan, verifiedAt } = await resolveVerifiedPlan(admin, user);
-    let limit = quotaLimit(bucket, plan);
-    let row = await consume(admin, user.id, bucket, limit);
+    let limit = budgetCents(bucket, plan);
+    let row = await consume(admin, user.id, bucket, limit, 0, true);
 
-    // Hard stop, but give a just-upgraded user their new limit immediately.
+    // Hard stop, but give a just-upgraded user their new budget immediately.
     if (!row.allowed && Date.now() - verifiedAt > DENIED_RECHECK_SECONDS * 1000) {
       const fresh = await resolveVerifiedPlan(admin, user, 0);
-      const freshLimit = quotaLimit(bucket, fresh.plan);
+      const freshLimit = budgetCents(bucket, fresh.plan);
       if (freshLimit > limit) {
         plan = fresh.plan; limit = freshLimit;
-        row = await consume(admin, user.id, bucket, limit);
+        row = await consume(admin, user.id, bucket, limit, 0, true);
       }
     }
 
@@ -222,24 +297,53 @@ export async function consumeQuota(user: User, bucket: QuotaBucket): Promise<Quo
   }
 }
 
-/** Read-only usage for every bucket (no increment). Throws if unavailable. */
+/**
+ * Debit the ACTUAL cost of upstream calls that already happened. Always
+ * recorded (the money is spent) even if it overshoots the budget; the next
+ * checkQuota then rejects. Never throws — a failed debit is logged and the
+ * already-paid-for response is still returned to the user.
+ */
+export async function chargeQuota(
+  user: User, bucket: QuotaBucket, costMicrocents: number, check: QuotaDecision,
+): Promise<void> {
+  if (!(costMicrocents > 0)) return;
+  const admin = serviceClient();
+  if (!admin) {
+    console.error(`usage-quota: could not record ${bucket} spend (service client unavailable)`);
+    return;
+  }
+  try {
+    const limit = check.allowed && check.snapshot ? check.snapshot.limitCents : 0;
+    await consume(admin, user.id, bucket, limit, costMicrocents, false);
+  } catch {
+    console.error(`usage-quota: could not record ${bucket} spend`);
+  }
+}
+
+/** Read-only spend for every bucket (no debit). Throws if unavailable. */
 export async function quotaStatus(user: User): Promise<{ plan: QuotaPlan; buckets: Record<QuotaBucket, QuotaSnapshot> }> {
   const admin = serviceClient();
   if (!admin) throw new Error('Quota service unavailable');
   const { plan } = await resolveVerifiedPlan(admin, user);
   const read = async (bucket: QuotaBucket) => {
-    const { data, error } = await admin.rpc('quota_status', { p_user_id: user.id, p_bucket: bucket });
+    const limit = budgetCents(bucket, plan);
+    const { data, error } = await admin.rpc('quota_status', {
+      p_user_id: user.id, p_bucket: bucket, p_limit_cents: limit,
+    });
     const row = Array.isArray(data) ? data[0] : data;
     if (error || !row) throw new Error('quota_status failed');
-    return snapshot(bucket, plan, row, quotaLimit(bucket, plan));
+    return snapshot(bucket, plan, row, limit);
   };
   const [ai, zinc] = await Promise.all([read('ai'), read('zinc')]);
   return { plan, buckets: { ai, zinc } };
 }
 
-const BUCKET_NOUN: Record<QuotaBucket, string> = { ai: 'AI messages', zinc: 'product searches' };
+const BUCKET_NOUN: Record<QuotaBucket, string> = { ai: 'AI chat', zinc: 'product search' };
 
-/** Standard 429 body for a quota-exceeded response. */
+export const formatUsd = (cents: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Math.floor(cents) / 100);
+
+/** Standard 429 body for a budget-exceeded response. */
 export function quotaExceededBody(s: QuotaSnapshot) {
   const resetDate = new Intl.DateTimeFormat('en-US', {
     month: 'long', day: 'numeric', year: 'numeric', timeZone: 'UTC',
@@ -247,12 +351,12 @@ export function quotaExceededBody(s: QuotaSnapshot) {
   return {
     error: {
       code: 'quota_exceeded',
-      message: `You've used all ${s.limit} ${BUCKET_NOUN[s.bucket]} included with your ${s.plan} plan this month. ` +
-        `Your allowance resets on ${resetDate}. Upgrade your plan for more.`,
+      message: `You've used this month's ${formatUsd(s.limitCents)} ${BUCKET_NOUN[s.bucket]} budget on your ` +
+        `${s.plan} plan. It resets on ${resetDate}. Upgrade your plan for a bigger budget.`,
       bucket: s.bucket,
       plan: s.plan,
-      used: s.used,
-      limit: s.limit,
+      usedCents: s.usedCents,
+      limitCents: s.limitCents,
       resetsAt: s.resetsAt,
     },
   };

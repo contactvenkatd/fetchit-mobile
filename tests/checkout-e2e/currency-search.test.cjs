@@ -2,12 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load, backend, mount, mountHistory, localOrderId, profile } = require('./harness.cjs');
 const intent = { productQuery: 'Lodge cast iron skillet', quantity: 2, size: '12 inch', color: null, priceCeiling: null, retailerPreference: null };
-// search-products authenticates and spends a Zinc quota unit before Zinc;
-// these isolated tests stand in an authenticated user with quota remaining.
+// search-products authenticates, checks the Zinc budget before Zinc and
+// debits actual calls after; these isolated tests stand in an authenticated
+// user with budget remaining.
 const quotaAllowed = {
   authenticateRequest: async () => ({ id: 'user_fixture' }),
-  consumeQuota: async () => ({ allowed: true, snapshot: null }),
+  checkQuota: async () => ({ allowed: true, snapshot: null }),
+  chargeQuota: async () => {},
   quotaExceededBody: () => ({}),
+  ZINC_CALL_MICROCENTS: 1_000_000,
 };
 function search(fetcher, key = 'zn_test_fixture') {
   let handler;

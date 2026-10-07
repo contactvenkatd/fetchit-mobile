@@ -2,10 +2,11 @@ import { supabase } from '@/lib/supabase';
 
 export type QuotaBucket = 'ai' | 'zinc';
 
+/** Monthly dollar budget for one paid feature, in (possibly fractional) cents. */
 export interface BucketUsage {
-  used: number;
-  limit: number;
-  remaining: number;
+  usedCents: number;
+  limitCents: number;
+  remainingCents: number;
 }
 
 export interface UsageStatus {
@@ -17,9 +18,15 @@ export interface UsageStatus {
 }
 
 const BUCKET_NOUN: Record<QuotaBucket, string> = {
-  ai: 'AI messages',
-  zinc: 'product searches',
+  ai: 'AI chat',
+  zinc: 'product search',
 };
+
+/** Whole dollars and cents, rounded down so "left" never overstates a budget. */
+export function formatUsd(cents: number): string {
+  const safe = Number.isFinite(cents) ? Math.max(0, Math.floor(cents)) : 0;
+  return (safe / 100).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
 
 /** "November 1, 2026" — the reset instant is midnight UTC, so format in UTC. */
 export function formatResetDate(iso: string): string {
@@ -34,25 +41,26 @@ export function formatResetDate(iso: string): string {
 }
 
 /**
- * The monthly allowance for a paid upstream (AI chat or product search) is
- * used up. Distinct from a generic service failure so the UI can explain the
- * reset date and offer an upgrade.
+ * The monthly dollar budget for a paid feature (AI chat or product search) is
+ * spent. Distinct from a generic service failure so the UI can explain the
+ * reset date and offer an upgrade. The two budgets are separate, so the
+ * message names the one that ran out.
  */
 export class QuotaExceededError extends Error {
   readonly bucket: QuotaBucket;
-  readonly limit: number;
+  readonly limitCents: number;
   readonly resetsAt: string;
   readonly userMessage: string;
 
-  constructor(bucket: QuotaBucket, limit: number, resetsAt: string) {
+  constructor(bucket: QuotaBucket, limitCents: number, resetsAt: string) {
     super(`${bucket} quota exceeded`);
     this.name = 'QuotaExceededError';
     this.bucket = bucket;
-    this.limit = limit;
+    this.limitCents = limitCents;
     this.resetsAt = resetsAt;
     this.userMessage =
-      `You've used all ${limit} ${BUCKET_NOUN[bucket]} included in your plan this month. ` +
-      `Your allowance resets on ${formatResetDate(resetsAt)}. Upgrade your plan for more.`;
+      `You've used this month's ${formatUsd(limitCents)} ${BUCKET_NOUN[bucket]} budget. ` +
+      `It resets on ${formatResetDate(resetsAt)}. Upgrade your plan for a bigger budget.`;
   }
 }
 
@@ -66,18 +74,18 @@ export async function readQuotaError(error: unknown): Promise<QuotaExceededError
   if (!context || typeof context.status !== 'number' || context.status !== 429) return null;
   try {
     const body = (await context.clone().json()) as {
-      error?: { code?: unknown; bucket?: unknown; limit?: unknown; resetsAt?: unknown };
+      error?: { code?: unknown; bucket?: unknown; limitCents?: unknown; resetsAt?: unknown };
     };
     const details = body?.error;
     if (
       details?.code !== 'quota_exceeded' ||
       (details.bucket !== 'ai' && details.bucket !== 'zinc') ||
-      typeof details.limit !== 'number' ||
+      typeof details.limitCents !== 'number' ||
       typeof details.resetsAt !== 'string'
     ) {
       return null;
     }
-    return new QuotaExceededError(details.bucket, details.limit, details.resetsAt);
+    return new QuotaExceededError(details.bucket, details.limitCents, details.resetsAt);
   } catch {
     return null;
   }
@@ -87,9 +95,9 @@ function isBucketUsage(value: unknown): value is BucketUsage {
   if (!value || typeof value !== 'object') return false;
   const usage = value as Record<string, unknown>;
   return (
-    Number.isInteger(usage.used) &&
-    Number.isInteger(usage.limit) &&
-    Number.isInteger(usage.remaining)
+    Number.isFinite(usage.usedCents) &&
+    Number.isFinite(usage.limitCents) &&
+    Number.isFinite(usage.remainingCents)
   );
 }
 

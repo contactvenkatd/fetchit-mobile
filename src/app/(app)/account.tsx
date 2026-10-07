@@ -6,7 +6,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/components/ui/Button';
 import { getName, getPlan, signOut, useAuth } from '@/lib/auth';
 import { monthlyDisplay, money } from '@/lib/stripe';
-import { fetchUsageStatus, formatResetDate, type UsageStatus } from '@/services/quotaService';
+import {
+  fetchUsageStatus,
+  formatResetDate,
+  formatUsd,
+  type BucketUsage,
+  type UsageStatus,
+} from '@/services/quotaService';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 const PLAN_COLOR: Record<string, string> = {
@@ -94,12 +100,8 @@ export default function AccountScreen() {
             <Text style={styles.sectionTitle}>This Month's Usage</Text>
             {usage ? (
               <>
-                <UsageRow label="AI messages" remaining={usage.ai.remaining} limit={usage.ai.limit} />
-                <UsageRow
-                  label="Product searches"
-                  remaining={usage.zinc.remaining}
-                  limit={usage.zinc.limit}
-                />
+                <UsageRow label="AI chat" usage={usage.ai} />
+                <UsageRow label="Product search" usage={usage.zinc} />
                 <Text style={styles.sectionSub}>Resets {formatResetDate(usage.resetsAt)}</Text>
               </>
             ) : usageError ? (
@@ -138,13 +140,18 @@ export default function AccountScreen() {
   );
 }
 
-function UsageRow({ label, remaining, limit }: { label: string; remaining: number; limit: number }) {
-  const out = remaining <= 0;
+function UsageRow({ label, usage }: { label: string; usage: BucketUsage }) {
+  const out = usage.remainingCents <= 0;
   return (
     <View style={styles.usageRow}>
-      <Text style={styles.usageLabel}>{label}</Text>
+      <View>
+        <Text style={styles.usageLabel}>{label}</Text>
+        <Text style={styles.usageDetail}>
+          {formatUsd(usage.usedCents)} of {formatUsd(usage.limitCents)} used
+        </Text>
+      </View>
       <Text style={[styles.usageValue, out && styles.usageValueOut]}>
-        {remaining} of {limit} left
+        {formatUsd(usage.remainingCents)} left
       </Text>
     </View>
   );
@@ -187,6 +194,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xs,
   },
   usageLabel: { color: Colors.text, fontSize: FontSize.md },
+  usageDetail: { color: Colors.textFaint, fontSize: FontSize.sm },
   usageValue: { color: Colors.text, fontSize: FontSize.md, fontWeight: '700' },
   usageValueOut: { color: Colors.error },
   usageSpinner: { alignSelf: 'flex-start', marginVertical: Spacing.sm },

@@ -1,6 +1,7 @@
-// Read-only usage for the signed-in user: AI messages and product searches
-// used / limit / remaining this period, plus the reset date. Never increments.
-import { authenticateRequest, quotaStatus } from '../_shared/usage-quota.ts';
+// Read-only spend for the signed-in user: AI chat and product search dollars
+// used / limit / remaining this period (in cents), plus the reset date.
+// Never debits.
+import { authenticateRequest, quotaStatus, type QuotaSnapshot } from '../_shared/usage-quota.ts';
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": Deno.env.get("ALLOWED_ORIGIN") ?? "*",
@@ -31,8 +32,8 @@ Deno.serve(async (req) => {
 
   try {
     const { plan, buckets } = await quotaStatus(user);
-    const view = ({ used, limit, remaining }: { used: number; limit: number; remaining: number }) =>
-      ({ used, limit, remaining });
+    const view = ({ usedCents, limitCents, remainingCents }: QuotaSnapshot) =>
+      ({ usedCents, limitCents, remainingCents });
     return json({
       plan,
       periodKey: buckets.ai.periodKey,
