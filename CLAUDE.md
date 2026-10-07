@@ -363,6 +363,32 @@ data calls (`search-products`: search + details + offers, $0.01 each).
   (Deno + PGlite).
 
 ## Status — what's built vs stubbed
+## Provider balances (Zinc alert monitor, xAI auto top-up)
+Nothing here moves money. **Zinc has no top-up API** (only `GET /wallet/me`;
+funds are added in Zinc's dashboard), so FetchIt only watches it. **xAI tops
+itself up** via its built-in console auto top-up — one-time setup in
+`docs/xai-auto-topup-setup.md` ($10 threshold, $100 per top-up, $500/month).
+- **`zinc-balance-monitor`** (Verify JWT OFF; requires `x-monitor-secret` =
+  `BALANCE_MONITOR_SECRET`, ≥32 chars): reads `spendable_balance`, logs one row
+  per run, and emails `ZINC_ALERT_EMAIL` through Resend (`RESEND_API_KEY`) when
+  it's below `ZINC_ALERT_THRESHOLD_CENTS` (default 1000) or unreadable. Repeats
+  at most every `ZINC_ALERT_REPEAT_HOURS` (default 6) while low; an OK check
+  re-arms it. Sender: `BALANCE_ALERT_FROM` (default `onboarding@resend.dev`,
+  which Resend only delivers to the Resend account owner — use a verified
+  domain otherwise). A `zn_test_` key reads the sandbox wallet and is flagged.
+- **Schedule:** `supabase/cron/zinc-balance-monitor.sql` (pg_cron + pg_net,
+  every 15 minutes; URL and secret come from Vault). Not a migration because
+  local/test databases lack those extensions.
+- **Log:** `balance_topup_events` (`20261009000000_balance_topup_events.sql`) —
+  service-role insert/select only; UPDATE/DELETE/TRUNCATE revoked and blocked
+  by triggers.
+- **`ops-status`** (admin-only: `app_metadata.fetchit_admin === true`, granted
+  in SQL): latest balance, staleness (>45 min), days since last alert, alert and
+  low-check counts. Shown as an Operations card on Account for admins. Kept out
+  of `usage-status` so users never see company balances.
+- **Tests:** `tests/balance-monitor.test.js`,
+  `supabase/tests/balance-topup-events-sql.test.ts`.
+
 - **Fully built:** Landing (logo + tagline, Sign In/Create Account CTAs, and a
   "Learn More" slide-up bottom sheet — built with RN's `Modal animationType="slide"`,
   no extra deps), **Login** (native passwordless: email → attestation-gated

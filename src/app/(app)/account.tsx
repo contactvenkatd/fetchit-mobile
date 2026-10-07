@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Button } from '@/components/ui/Button';
 import { getName, getPlan, signOut, useAuth } from '@/lib/auth';
 import { monthlyDisplay, money } from '@/lib/stripe';
+import { fetchOpsStatus, isOpsAdmin, type ZincOpsStatus } from '@/services/opsService';
 import {
   fetchUsageStatus,
   formatResetDate,
@@ -42,6 +43,9 @@ export default function AccountScreen() {
   const perMonth = monthlyDisplay(plan, 'monthly');
   const [usage, setUsage] = useState<UsageStatus | null>(null);
   const [usageError, setUsageError] = useState(false);
+  const opsAdmin = isOpsAdmin(session);
+  const [ops, setOps] = useState<ZincOpsStatus | null>(null);
+  const [opsError, setOpsError] = useState(false);
 
   // Refresh on every focus so usage is current after chatting or upgrading.
   useFocusEffect(
@@ -56,10 +60,21 @@ export default function AccountScreen() {
           console.error('Usage status failed:', error);
           if (active) setUsageError(true);
         });
+      if (opsAdmin) {
+        setOpsError(false);
+        fetchOpsStatus()
+          .then((status) => {
+            if (active) setOps(status);
+          })
+          .catch((error) => {
+            console.error('Ops status failed:', error);
+            if (active) setOpsError(true);
+          });
+      }
       return () => {
         active = false;
       };
-    }, []),
+    }, [opsAdmin]),
   );
 
   function confirmSignOut() {
@@ -111,6 +126,20 @@ export default function AccountScreen() {
             )}
           </View>
 
+          {/* Admin-only: Zinc wallet as last read by the balance monitor */}
+          {opsAdmin ? (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Operations · Zinc Wallet</Text>
+              {ops ? (
+                <ZincOpsCard ops={ops} />
+              ) : opsError ? (
+                <Text style={styles.sectionSub}>Operations status is unavailable right now.</Text>
+              ) : (
+                <ActivityIndicator color={Colors.yellow} style={styles.usageSpinner} />
+              )}
+            </View>
+          ) : null}
+
           {/* Profile */}
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Profile</Text>
@@ -157,6 +186,41 @@ function UsageRow({ label, usage }: { label: string; usage: BucketUsage }) {
   );
 }
 
+function ZincOpsCard({ ops }: { ops: ZincOpsStatus }) {
+  const checked = ops.lastCheckedAt ? new Date(ops.lastCheckedAt).toLocaleString('en-US') : 'never';
+  const lastAlert =
+    ops.daysSinceLastAlert === null
+      ? 'No alerts yet'
+      : ops.daysSinceLastAlert === 0
+        ? 'Last alert today'
+        : `${ops.daysSinceLastAlert} day${ops.daysSinceLastAlert === 1 ? '' : 's'} since last alert`;
+  return (
+    <>
+      <View style={styles.usageRow}>
+        <Text style={styles.usageLabel}>Spendable</Text>
+        <Text style={[styles.usageValue, ops.belowThreshold && styles.usageValueOut]}>
+          {ops.spendableCents === null ? '—' : formatUsd(ops.spendableCents)}
+        </Text>
+      </View>
+      <Text style={styles.usageDetail}>
+        Alert threshold {ops.thresholdCents === null ? '—' : formatUsd(ops.thresholdCents)}
+        {ops.keyMode === 'test' ? ' · TEST key (sandbox wallet)' : ''}
+      </Text>
+      {ops.readError ? (
+        <Text style={styles.opsWarning}>Last check failed: {ops.readError}</Text>
+      ) : null}
+      {ops.monitorStale ? (
+        <Text style={styles.opsWarning}>Monitor hasn't reported in 45+ minutes.</Text>
+      ) : null}
+      <Text style={styles.sectionSub}>
+        {lastAlert} · {ops.alertsLast30Days} in 30 days · {ops.lowChecksLast24Hours} of{' '}
+        {ops.checksLast24Hours} checks low in 24h
+      </Text>
+      <Text style={styles.sectionSub}>Checked {checked}</Text>
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
   // Vertical rhythm between the cards; the ScrollView owns the outer padding.
   content: { gap: Spacing.lg },
@@ -197,6 +261,7 @@ const styles = StyleSheet.create({
   usageDetail: { color: Colors.textFaint, fontSize: FontSize.sm },
   usageValue: { color: Colors.text, fontSize: FontSize.md, fontWeight: '700' },
   usageValueOut: { color: Colors.error },
+  opsWarning: { color: Colors.error, fontSize: FontSize.sm },
   usageSpinner: { alignSelf: 'flex-start', marginVertical: Spacing.sm },
   menu: {
     backgroundColor: Colors.surface,

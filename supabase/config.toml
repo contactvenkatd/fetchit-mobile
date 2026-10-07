@@ -22,6 +22,14 @@ verify_jwt = true
 [functions.usage-status]
 verify_jwt = true
 
+# Admin-only ops view; the handler also requires app_metadata.fetchit_admin.
+[functions.ops-status]
+verify_jwt = true
+
+# Called by pg_cron (no user JWT); authenticated by the x-monitor-secret header.
+[functions.zinc-balance-monitor]
+verify_jwt = false
+
 [functions.stripe-webhook]
 verify_jwt = false
 
