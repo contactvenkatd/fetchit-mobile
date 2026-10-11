@@ -1,0 +1,35 @@
+{
+  "observedAt": "2026-10-11T19:26:30.737Z",
+  "scope": "Zinc sandbox only; not a production pricing contract",
+  "customerCeilingVerified": false,
+  "observations": [
+    {
+      "orderId": "e3f6dcb2-c900-4bf9-8666-1db6032a91a8",
+      "retailerBudgetCents": 1000,
+      "marginCents": 235,
+      "simulated": true,
+      "status": "order_placed",
+      "connectState": "secured",
+      "retailerTotalCents": 900,
+      "transferCents": null,
+      "securedCents": 1406,
+      "zincFeeCents": 100,
+      "stripeFeeCents": null,
+      "finalChargeCents": null
+    },
+    {
+      "orderId": "f9c3b79b-9570-42de-91b0-cf0970f45bef",
+      "retailerBudgetCents": 1200,
+      "marginCents": 235,
+      "simulated": true,
+      "status": "order_placed",
+      "connectState": "secured",
+      "retailerTotalCents": 1100,
+      "transferCents": null,
+      "securedCents": 1612,
+      "zincFeeCents": 100,
+      "stripeFeeCents": null,
+      "finalChargeCents": null
+    }
+  ]
+}

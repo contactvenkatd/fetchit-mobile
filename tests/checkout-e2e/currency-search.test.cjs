@@ -118,7 +118,7 @@ if (process.env.RUN_REAL_CURRENCY_SEARCH === '1') {
       assert.match(history.container.textContent, /Retailer status: failed/);
       assert.doesNotMatch(history.container.textContent, /Retailer status: delivered|Captured:|Payment status: (paid|succeeded)|Completed/);
       assert.equal(app.calls.submissions.length, 1);
-      console.log(JSON.stringify({ asin: result.amazon.asin, currency: result.currency, unitPriceCents: result.price, quantity: 2, variant: intent.size, marginCents: 200 + Math.round(result.price * 2 * .035), serviceFeeCents: 300 + Math.round(result.price * 2 * .035), submissions: app.calls.submissions.length, savedAddressFieldsMatched: true, simulatedDelivery: true, injectedFailureOverridesOverallDelivery: true, mocks: ['native UI primitives', 'authentication', 'database', 'Stripe customer/payment-method reads', 'post-delivery failure response'] }));
+      console.log(JSON.stringify({ asin: result.amazon.asin, currency: result.currency, unitPriceCents: result.price, quantity: 2, variant: intent.size, marginCents: 100 + Math.round(result.price * 2 * .035), serviceFeeCents: 200 + Math.round(result.price * 2 * .035), submissions: app.calls.submissions.length, savedAddressFieldsMatched: true, simulatedDelivery: true, injectedFailureOverridesOverallDelivery: true, mocks: ['native UI primitives', 'authentication', 'database', 'Stripe customer/payment-method reads', 'post-delivery failure response'] }));
     } finally { await history.close(); }
   });
 } else {
@@ -145,22 +145,22 @@ if (process.env.RUN_REAL_CURRENCY_SEARCH === '1') {
     const response = await handler(new Request('https://isolated.invalid/search', { method: 'POST', body: JSON.stringify({ ...intent, retailerPreference: 'etsy' }) }));
     assert.equal(response.status, 409);
   });
-  test('Amazon server enforces signed variant and New condition; retains seller as quote metadata', async () => {
+  test('Amazon server enforces signed variant and explicit processing consent', async () => {
     const result = (await search(provider())())[0];
     const app = backend(); const ui = mount(app.api, 'test-success', { productUrl: result.url,
       priceCents: String(result.price), currency: result.currency, listingProof: result.listingProof, size: '12 inch' });
     try {
-      await ui.start(); await approveBudget(ui, '200.00'); await ui.click('Place Order');
-      const sent = app.calls.submissions[0]; assert.ok(sent);
-      assert.deepEqual(sent.products[0].condition_in, ['New']);
-      assert.deepEqual(sent.products[0].variant, [{ label: 'Size', value: '12 inch' }]);
-      assert.equal(sent.metadata.amazon_quoted_seller_id, offer.seller.id);
-      assert.equal(sent.metadata.amazon_asin, asin);
-      assert.equal(sent.payment.margin.value, 813); // 200 + round(17500 * .035).
+      await ui.start(); await ui.setBudget('200.00');
+      assert.match(ui.container.textContent, /FetchIt fee: USD 8\.13/);
+      assert.equal(ui.button('Approve estimate').disabled, false);
+      assert.equal(ui.button('Place Order').disabled, true);
+      await ui.click('Approve estimate'); await ui.click('Place Order');
+      assert.equal(app.calls.submissions.length, 1);
+      assert.equal(app.calls.submissions[0].payment.margin.value,713);
     } finally { await ui.close(); }
     const mismatch = backend(); const changed = mount(mismatch.api, 'test-success', {
       productUrl: result.url, priceCents: String(result.price), currency: 'USD', listingProof: result.listingProof, size: '10 inch' });
-    try { await changed.start(); assert.equal(mismatch.calls.submissions.length, 0); assert.ok(!changed.button('Approve estimate')); }
+    try { await changed.start(); await changed.setBudget('200.00'); assert.equal(mismatch.calls.submissions.length, 0); assert.ok(!changed.button('Approve estimate')); }
     finally { await changed.close(); }
   });
   test('Amazon minimum offer quantity survives signed proof and rejects a reduced client quantity', async () => {

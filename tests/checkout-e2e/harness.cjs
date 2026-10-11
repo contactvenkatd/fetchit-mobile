@@ -31,11 +31,11 @@ const zincId = crypto.randomUUID();
 const profile = { full_name: 'Sandbox Agent', country: 'US', phone_number: '4155552671',
   stripe_payment_method_id: 'pm_fixture', stripe_customer_id: 'cus_fixture',
   address_line1: '101 Market St', address_line2: 'Unit 4', city: 'San Francisco', state: 'CA', zip: '94105' };
-function backend({ upstream, stripe, key = 'zn_test_fixture', pricingAvailable = true, persistFails = false, owned = true, production = false, capturedCents = 950 } = {}) {
+function backend({ upstream, stripe, key = 'zn_test_fixture', pricingAvailable = true, persistFails = false, owned = true, production = false, capturedCents = 950, existingOrder = false, syncFails = false } = {}) {
   const liveMode = key.startsWith('zn_live_');
-  const calls = { submissions: [], inserts: [], statuses: 0, stripeReads: 0, invocations: [] };
+  const calls = { submissions: [], inserts: [], statuses: 0, stripeReads: 0, invocations: [], updates: [] };
   let handler;
-  let saved;
+  let saved = existingOrder ? { zinc_order_id: zincId } : undefined;
   const paymentStripe = () => stripe || {
     customers: { retrieve: async () => { calls.stripeReads++; return { livemode: liveMode, metadata: { supabase_uid: userId } }; } },
     paymentMethods: { retrieve: async () => { calls.stripeReads++; return { livemode: liveMode, customer: profile.stripe_customer_id }; } },
@@ -61,6 +61,7 @@ function backend({ upstream, stripe, key = 'zn_test_fixture', pricingAvailable =
     from(table) {
       if (table === 'profiles') return { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: profile }) }) }) };
       return {
+        update(row) { calls.updates.push(row); const q = { eq() { return q; }, or() { return q; }, then(resolve) { return Promise.resolve({ error: syncFails ? {} : null }).then(resolve); } }; return q; },
         select: () => { const filters = {}; const q = { eq(k, v) { filters[k] = v; return q; },
           maybeSingle: async () => ({ data: owned && saved && filters.id === localOrderId && filters.user_id === userId
             ? { id: localOrderId, zinc_order_id: saved.zinc_order_id } : null }) }; return q; },

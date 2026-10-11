@@ -19,7 +19,7 @@ import {
   type PlacedOrder,
 } from '@/services/orderService';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
-import { reviewCheckoutPrice, formatKnownPrice, hasApprovedEstimate, estimateApprovalText, parseRetailerBudget, formatUsdCents } from '@/services/checkoutPricing';
+import { reviewCheckoutPrice, formatKnownPrice, hasApprovedEstimate, parseRetailerBudget, formatUsdCents, checkoutCostLines, checkoutTotalCents } from '@/services/checkoutPricing';
 
 const param = (value: string | string[] | undefined): string =>
   Array.isArray(value) ? value[0] ?? '' : value ?? '';
@@ -88,7 +88,9 @@ export default function CheckoutConfirmationScreen() {
   const [quoteRefresh, setQuoteRefresh] = useState(0);
   const quoteContext = JSON.stringify([productUrl, quantity, variants, listingProof, totalCents, pricing.currency, retailerBudgetCents, profile]);
   const quote = quoteResult?.context === quoteContext ? quoteResult.quote : null;
-  const canSubmit = budgetAcknowledged && hasApprovedEstimate(quote, approvedQuoteId);
+  const canSubmit = quote?.canSubmit === true && budgetAcknowledged && hasApprovedEstimate(quote, approvedQuoteId);
+  const costLines = checkoutCostLines(quote, pricing.itemSubtotalCents);
+  const displayedTotal = checkoutTotalCents(costLines);
 
 
   useEffect(() => {
@@ -176,7 +178,7 @@ export default function CheckoutConfirmationScreen() {
   }, [placedOrder?.id]);
 
   async function confirmPurchase() {
-    if (!validProduct || !hasAddress || !hasCard || !budgetAcknowledged || !hasApprovedEstimate(quote, approvedQuoteId) || !retailerBudgetCents || submissionLocked.current) return;
+    if (quote?.canSubmit !== true || !validProduct || !hasAddress || !hasCard || !budgetAcknowledged || !hasApprovedEstimate(quote, approvedQuoteId) || !retailerBudgetCents || submissionLocked.current) return;
     submissionLocked.current = true;
     setError('');
     setSubmitting(true);
@@ -186,7 +188,7 @@ export default function CheckoutConfirmationScreen() {
         quantity, variants,
         displayedPriceCents: retailerBudgetCents,
         itemSubtotalCents: totalCents, unitPriceCents, listingProof, currency: 'USD',
-        approval: { quoteId: quote!.id, mode: 'estimate', acceptsVariableFees: true, acknowledgesZeroHeadroom: zeroHeadroomAcknowledged, retailerBudgetCents: quote!.retailerBudgetCents, currency: quote!.currency },
+        approval: { quoteId: quote!.id, mode: 'estimate', acceptsVariableFees: true, acceptsProcessingFee: true, acknowledgesZeroHeadroom: zeroHeadroomAcknowledged, retailerBudgetCents: quote!.retailerBudgetCents, currency: quote!.currency },
         productName: title,
         productImage: image,
         retailer,
@@ -231,10 +233,10 @@ export default function CheckoutConfirmationScreen() {
     return (
       <Screen edges={['bottom']}>
         <View style={styles.successWrap}>
-          <Text style={styles.successIcon}>✓</Text>
-          <Text style={styles.heading}>Order submitted</Text>
+          <Text style={styles.successIcon}>{latestStatus?.retailerStatus === 'failed' ? '!' : '✓'}</Text>
+          <Text style={styles.heading}>{latestStatus?.retailerStatus === 'failed' ? 'Order failed' : 'Order submitted'}</Text>
           <Text style={styles.successText}>
-            Zinc order {placedOrder.zincOrderId} is {placedOrder.status.replaceAll('_', ' ')}.
+            Zinc order {placedOrder.zincOrderId} is {(latestStatus?.zincStatus ?? placedOrder.status).replaceAll('_', ' ')}.
           </Text>
           <Text style={styles.detailText}>Submission accepted; retailer and payment outcomes are separate.</Text>
           {latestStatus ? (
@@ -278,7 +280,7 @@ export default function CheckoutConfirmationScreen() {
             <Text style={styles.productTitle}>{title || 'Unknown product'}</Text>
             <Text style={styles.retailer}>{retailer || 'Unknown retailer'}</Text>
             {variants.map(variant => <Text key={variant.label} style={styles.quantity}>{variant.label}: {variant.value}</Text>)}
-            <Text style={styles.price}>Item subtotal: {formatKnownPrice(pricing.itemSubtotalCents, pricing.currency)}</Text>
+
             {quantity > 1 ? (
               <Text style={styles.quantity}>
                 {quantity} × {formatKnownPrice(unitPriceCents, pricing.currency)}
@@ -288,20 +290,18 @@ export default function CheckoutConfirmationScreen() {
         </View>
 
         <View style={styles.detailCard}>
-          <Text style={styles.sectionTitle}>Estimated total</Text>
-          <Text style={styles.detailText}>Estimated shipping: Unknown until retailer checkout</Text>
-          <Text style={styles.detailText}>Estimated tax: Unknown until retailer checkout</Text>
-          <Text style={styles.detailText}>Service fee: {quote ? formatKnownPrice(quote.serviceFeeCents, quote.currency) : 'pending verified estimate'}</Text>
-
-          <Text style={styles.detailText}>Processing fees: Unknown; applicable rate not confirmed</Text>
-          <Text style={styles.detailText}>Estimated total. Final shipping, taxes, and processing fees may vary.</Text>
+          <Text style={styles.sectionTitle}>Cost review</Text>
+          {costLines.map(line => <Text key={line.label} style={styles.detailText}>{line.label}: {line.cents === null ? 'Unknown' : formatKnownPrice(line.cents, pricing.currency)}</Text>)}
+          <Text style={styles.detailPrimary}>Total: {displayedTotal === null ? 'Unknown — shipping, tax and processing are not yet confirmed' : formatKnownPrice(displayedTotal, pricing.currency)}</Text>
+          <Text style={styles.detailText}>Product price is an estimate. FetchIt fee is $2 + 3.5% of the item subtotal, rounded once to cents. This includes the provider’s $1 fee.</Text>
+          <Text style={styles.warning}>Processing fee is charged separately by the payment provider. Its applicable rate and amount are unknown before submission; no example rate or estimated total is guaranteed.</Text>
           <Text style={styles.detailText}>Retailer spending limit in USD, including shipping and taxes:</Text>
           <TextInput accessibilityLabel="Retailer spending limit in USD" keyboardType="decimal-pad"
             value={budgetInput} placeholder="Enter retailer budget"
             placeholderTextColor={Colors.textFaint} style={styles.budgetInput}
             editable={!submitting && !outcomeUnknown && !submissionLocked.current}
             onChangeText={value => { setApprovedQuoteId(null); setZeroHeadroomAcknowledged(false); setBudgetInput(value); }} />
-          <Text style={styles.detailText}>This budget covers the item, shipping, and tax. Service and processing fees are additional.</Text>
+          <Text style={styles.detailText}>This budget caps the retailer’s item, shipping, and tax costs. The card hold also includes the FetchIt fee and provider-determined processing costs, so it exceeds this retailer budget.</Text>
           <Text style={styles.detailText}>Available shipping/tax headroom: {budgetValid ? formatKnownPrice(retailerBudgetCents! - totalCents, 'USD') : 'Unavailable until a valid budget is entered'}</Text>
           {!budgetValid ? <Text style={styles.warning}>{budgetInput === '' ? 'Enter an explicit retailer budget before approval.' : 'Enter a valid USD budget at least equal to the item subtotal.'}</Text> : null}
           {budgetValid && retailerBudgetCents === totalCents ? <>
@@ -312,12 +312,9 @@ export default function CheckoutConfirmationScreen() {
           </> : null}
           {quote ? (
             <>
-              <Text style={styles.detailPrimary}>{estimateApprovalText(quote.knownCostsCents)}</Text>
-              <Text style={styles.detailText}>Known costs include the item subtotal and Service fee. Unknown amounts are additional; this estimate is not an all-in limit.</Text>
-              <Text style={styles.detailText}>Retailer budget: USD {formatUsdCents(quote.retailerBudgetCents)} for items, shipping, and taxes only. Service fee and processing fees are additional, so the card hold and final charge may exceed this budget.</Text>
-              <Text style={styles.detailText}>By approving, you authorize Zinc to hold the retailer budget plus the Service fee and applicable processing fees, then charge the actual total after retailer placement. Unused authorization is released; your bank controls availability.</Text>
+              <Text style={styles.detailText}>By approving this estimate, you consent to the product estimate, actual shipping and tax within the retailer budget of USD {formatUsdCents(quote.retailerBudgetCents)}, the displayed FetchIt fee, and additional provider-determined processing costs whose rate and amount are currently unknown. Total and authorization hold are unknown until the provider calculates them. Changing the budget, address, quantity, variant, or quote requires fresh review.</Text>
               <Button label={approvedQuoteId === quote.id ? 'Estimate approved' : 'Approve estimate'}
-                variant="secondary" disabled={submitting || outcomeUnknown || !budgetAcknowledged || approvedQuoteId === quote.id}
+                variant="secondary" disabled={quote.canSubmit !== true || submitting || outcomeUnknown || !budgetAcknowledged || approvedQuoteId === quote.id}
                 onPress={() => { if (budgetAcknowledged && quote.expiresAt > Date.now()) setApprovedQuoteId(quote.id); }} />
             </>
           ) : <Text style={styles.detailPrimary}>{quoteError || 'Estimate unavailable.'}</Text>}
@@ -372,7 +369,7 @@ export default function CheckoutConfirmationScreen() {
           <Button label="Cancel" variant="ghost" disabled={submitting} onPress={() => router.back()} />
         </View>
         <Text style={styles.disclaimer}>
-          Approve the estimate and variable fees above before placing an order. If retailer costs exceed your spending limit, a higher limit requires new approval.
+          No order is submitted until you approve the disclosed estimate and additional processing costs. A higher retailer budget requires new approval.
         </Text>
       </ScrollView>
     </Screen>

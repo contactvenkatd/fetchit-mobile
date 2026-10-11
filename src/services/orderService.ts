@@ -3,14 +3,14 @@ import { beginSubmission, acceptSubmission, releaseRejectedSubmission } from '@/
 export { getSavedSubmission, startNewPurchase } from '@/services/checkoutSubmission';
 
 export interface CheckoutQuote {
-  id: string; mode: 'estimate'; revision: string; itemSubtotalCents: number;
+  id: string; mode: 'estimate'; paymentContract: 'disclosed_variable_processing'; canSubmit: true; revision: string; itemSubtotalCents: number;
   knownCostsCents: number; shippingCents: null; taxCents: null; zincFeeCents: 100;
   paymentFeeCents: null; fetchitMarginCents: number; serviceFeeCents: number; estimatedTotalCents: null;
   retailerBudgetCents: number; currency: 'USD'; expiresAt: number;
 }
 
 export interface PlaceOrderInput {
-  approval?: { quoteId: string; mode: "estimate"; acceptsVariableFees: true; acknowledgesZeroHeadroom?: boolean; retailerBudgetCents: number; currency: "USD" };
+  approval?: { quoteId: string; mode: "estimate"; acceptsVariableFees: true; acceptsProcessingFee: true; acknowledgesZeroHeadroom?: boolean; retailerBudgetCents: number; currency: "USD" };
   itemSubtotalCents: number;
   unitPriceCents: number;
   listingProof: string;
@@ -51,7 +51,7 @@ export class PlaceOrderError extends Error {
       'profile_lookup_failed', 'missing_profile', 'missing_payment_method',
       'incomplete_shipping_address', 'missing_phone_number', 'checkout_approval_required',
       'payment_environment_mismatch', 'payment_verification_unavailable',
-      'max_price_exceeded', 'card_declined', 'insufficient_funds',
+      'checkout_payment_contract_unavailable', 'max_price_exceeded', 'card_declined', 'insufficient_funds',
       'invalid_shipping_address', 'url_unreachable',
     ].includes(code);
   }
@@ -131,11 +131,11 @@ export async function getCheckoutQuote(input: PlaceOrderInput): Promise<Checkout
   if (error) throw await functionError(error);
   const quote = data?.quote as CheckoutQuote | undefined;
   if (!quote || !/^[a-f0-9]{64}$/.test(quote.id) || quote.currency !== 'USD' ||
-      quote.mode !== 'estimate' || quote.revision !== 'usd-explicit-budget-v3' ||
+      quote.mode !== 'estimate' || quote.canSubmit !== true || quote.paymentContract !== 'disclosed_variable_processing' || quote.revision !== 'usd-disclosed-processing-v7' ||
       input.currency !== 'USD' || quote.itemSubtotalCents !== input.itemSubtotalCents ||
       !Number.isSafeInteger(quote.knownCostsCents) || quote.knownCostsCents !== input.itemSubtotalCents + quote.serviceFeeCents ||
-      quote.zincFeeCents !== 100 || (!Number.isSafeInteger(quote.fetchitMarginCents) || quote.fetchitMarginCents < 200) ||
-      quote.serviceFeeCents !== quote.fetchitMarginCents + quote.zincFeeCents ||
+      quote.zincFeeCents !== 100 || (!Number.isSafeInteger(quote.fetchitMarginCents) || quote.fetchitMarginCents < 100) ||
+      !Number.isSafeInteger(quote.serviceFeeCents) || quote.serviceFeeCents !== quote.fetchitMarginCents + quote.zincFeeCents ||
       quote.shippingCents !== null || quote.taxCents !== null || quote.paymentFeeCents !== null ||
       quote.estimatedTotalCents !== null ||
       quote.retailerBudgetCents !== input.displayedPriceCents ||

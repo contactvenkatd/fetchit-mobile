@@ -1,7 +1,31 @@
 import { paymentStripe, stripeIsLive } from './stripe-backend.ts';
 
 const states = new Set(['pending', 'in_progress', 'order_placed', 'order_failed', 'cancelled', 'cancelled_by_retailer']);
-const machineCode = (value: unknown) => typeof value === 'string' && /^[a-zA-Z0-9_]{1,100}$/.test(value) ? value : null;
+const machineCode = (value: unknown) => typeof value === 'string' && /^[a-zA-Z0-9_]{1,100}$/.test(value) && !/^(zn_|sk_|pk_|sb_|eyJ)/.test(value) ? value : null;
+const errorCode = (value: unknown) => value === 'Max Price Exceeded' ? 'max_price_exceeded' : machineCode(value)?.toLowerCase() ?? null;
+
+// Explicit allowlist: never persist the raw response, address, credentials,
+// payment references, arbitrary upstream messages, or checkout HTML.
+export function sanitizeCostEvidence(raw: any) {
+  const price = raw?.job_result?.price_components;
+  const validCurrency = typeof price?.currency === 'string' && /^[A-Z]{3}$/.test(price.currency) ? price.currency : null;
+  return {
+    source: 'zinc_order' as const, currency: validCurrency,
+    subtotalCents: cents(price?.subtotal), shippingCents: cents(price?.shipping),
+    taxCents: cents(price?.tax), totalCents: cents(price?.total),
+    discountCents: cents(price?.discount), retailerFeesCents: cents(price?.fees),
+    breakdownRecorded: price?.breakdown_recorded === true,
+    simulated: raw?.connect?.simulated === true,
+    securedCents: cents(raw?.connect?.secured_amount),
+    zincFeeCents: cents(raw?.connect?.zinc_fee), processingFeeCents: cents(raw?.connect?.stripe_fee),
+    finalChargeCents: cents(raw?.connect?.final_charge),
+    fetchitMarginCents: cents(raw?.connect?.customer_margin), transferCents: cents(raw?.connect?.transfer_amount),
+    // The documented order price breakdown does not identify the selected
+    // shipping service or attempted seller. Missing evidence remains unknown.
+    attemptedSeller: null, fulfillmentMethod: null, selectedShippingService: null,
+  };
+}
+
 const paymentId = (value: unknown, prefix: string) => typeof value === 'string' &&
   value.startsWith(prefix) && /^[a-zA-Z0-9_]{1,150}$/.test(value) ? value : null;
 const cents = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : null;
@@ -55,8 +79,11 @@ export async function readOrderStatus(zincOrderId: string, key: string) {
       raw.status === 'order_placed' ? 'placed' : 'unconfirmed';
   return { zincOrderId, zincStatus: raw.status, simulated,
     retailerStatus, tracking,
-    errorCode: machineCode(raw.job_result?.error_details?.code ?? raw.job_result?.error_type ?? raw.error?.code ?? raw.code) ??
-      items.map((item: { error?: { code?: unknown }; error_type?: unknown }) => machineCode(item.error?.code ?? item.error_type)).find(Boolean) ?? null,
+    costEvidence: sanitizeCostEvidence(raw),
+    errorCode: [raw.error_type, raw.error_details?.code, raw.job_result?.error_details?.code,
+      raw.job_result?.error_type, raw.error?.code, raw.code,
+      ...items.flatMap((item: any) => [item?.error_details?.code, item?.error?.code, item?.error_type])]
+      .map(errorCode).find(Boolean) ?? null,
     connectState: machineCode(raw.connect?.state),
     simulatedChargeCents: simulated ? cents(raw.connect?.final_charge) : null,
     payment };

@@ -1,3 +1,4 @@
+import { settlementDiagnostics } from '../_shared/settlement-diagnostics.mjs';
 import { recentSetupDiagnostics } from '../_shared/setup-diagnostics.mjs';
 import Stripe from 'npm:stripe@17.7.0';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -41,6 +42,11 @@ Deno.serve(async (req) => {
     }, { status: 503 });
   }
   const stripe = new Stripe(key, { apiVersion: '2025-02-24.acacia' });
+  if (new URL(req.url).searchParams.get('settlement') === '1') {
+    if (!adminAuthorized) return Response.json({ error: 'unauthorized' }, { status: 403 });
+    try { return Response.json(await settlementDiagnostics(stripe, Deno.env.get('ZINC_API_KEY'))); }
+    catch { return Response.json({ error: 'settlement_read_unavailable', financialOperations: 0 }, { status: 502 }); }
+  }
   let stage = 'stripe_account';
   let accountSummary = {};
   try {

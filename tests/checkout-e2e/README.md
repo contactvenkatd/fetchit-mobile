@@ -1,3 +1,32 @@
+# Disclosed processing checkout (v7)
+
+`npm run test:checkout` runs the complete affected offline suite (117 tests).
+Five cost rows are required: Product price, Shipping, Tax, FetchIt fee, Processing
+fee, then Total. FetchIt fee is $2 + 3.5% of quoted product subtotal rounded once;
+the flat margin sent to Zinc is exactly $1 less. No extra transfer is made.
+
+Shipping, tax, processing and Total remain unknown before the provider calculates
+them. Production does not import the sandbox's inferred example fee schedule.
+Approval explicitly consents to additional provider-determined processing costs;
+it is not a numeric customer-total ceiling. The retailer budget still caps item,
+shipping and tax. Changed quote/context/expiry requires fresh approval. Old
+four-line consent cannot submit. Durable pending locks survive timeout/restart.
+
+`npm run test:checkout:sandbox` uses only a `zn_test_` key and test products. It runs
+the actual UI/service/handler through real Zinc sandbox acceptance, duplicate key
+rejection, restart journal recovery and simulated delivery/failure. Native views,
+authentication, database and Stripe saved-reference reads are mocks. The sandbox
+nearest-cent gross-up is checked across subtotals, budgets and rounding boundaries;
+this is not verification of production processing rates or Stripe settlement.
+Only returned final capture/fee/transfer fields may establish those amounts. No
+separate Stripe payment operations are part of this runner.
+
+The evidence migration retains only allowlisted cost/fee/state fields. Quoted
+seller/fulfillment/options are distinct from attempted checkout evidence. No
+address, credentials or raw provider response is retained in evidence.
+
+Historical release notes below predate v7.
+
 # Replacement build 14 verification
 
 Current scope: [Amazon US verification](../../docs/amazon-us-checkout-verification.md). `RUN_REAL_CURRENCY_SEARCH=1 node --test tests/checkout-e2e/currency-search.test.cjs` now tests actual Amazon search/details/explicit-USD offers through Zinc sandbox delivery with the same Amazon ASIN URL. Earlier Etsy command descriptions below are historical.
@@ -115,7 +144,7 @@ a freshly generated key on a new screen is not durable purchase recovery.
 
 ## Primary references
 
-- [Expo 56](https://docs.expo.dev/versions/v56.0.0/)
+- [Expo 56](https://docs.expo.dev/versions/v66.0.0/)
 - [Zinc sandbox quickstart](https://www.zinc.com/docs/v2/agent-sandbox/quickstart)
 - [Zinc sandbox semantics](https://www.zinc.com/docs/v2/api-reference/introduction/sandbox)
 - [Zinc idempotency](https://www.zinc.com/docs/v2/api-reference/introduction/idempotency)
@@ -201,3 +230,5 @@ saved result and fresh read-only retrievals of the three existing Zinc sandbox o
 Those still expose no final capture/Stripe fee; combined Zinc-owned Connect and
 production pricing remain unverified. No new order or payment was created in this
 continuation. The production guard remains unchanged.
+
+Current v6 split: server FetchIt margin = 100 cents + rounded 3.5% of product subtotal; displayed combined fee = margin + Zinc’s automatic 100 cents. No extra transfer. Processing remains unknown and the existing payment-mismatch guard remains. Offline request tests exercise the downstream handler with mocked supported pricing; they are not provider authorization/capture/settlement proof.

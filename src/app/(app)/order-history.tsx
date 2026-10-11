@@ -105,7 +105,7 @@ export default function OrderHistoryScreen() {
           <View style={styles.list}>
             {orders.map((o) => {
               const latest = statuses[o.id];
-              const s = statusInfo(o.zincOrderId ? latest?.zincStatus ?? null : o.status);
+              const s = statusInfo(o.zincOrderId ? latest?.zincStatus ?? o.status : o.status);
               return (
                 <View key={o.id} style={styles.card}>
                   <View style={styles.thumb}>
@@ -131,12 +131,13 @@ export default function OrderHistoryScreen() {
                         .filter(Boolean)
                         .join('  ·  ')}
                     </Text>
+                    {!latest && o.zincErrorCode ? <Text style={styles.meta}>Order error: {o.zincErrorCode.replaceAll('_', ' ')}</Text> : null}
                     {latest ? (
                       <>
                         <Text style={styles.meta}>Retailer status: {latest.retailerStatus}</Text>
                         <Text style={styles.meta}>Payment status: {latest.payment.status}</Text>
                         {latest.simulated ? <Text style={styles.meta}>Sandbox simulation; no real shipment or charge confirmed.</Text> : null}
-                        {latest.errorCode ? <Text style={styles.meta}>Order error: {latest.errorCode}</Text> : null}
+                        {latest.errorCode ? <Text style={styles.meta}>Order error: {latest.errorCode.replaceAll('_', ' ')}</Text> : null}
                         {latest.tracking?.map((shipment, index) => (
                           <Text key={index} style={styles.meta}>Tracking: {shipment.carrier ?? 'Carrier unconfirmed'} {shipment.trackingNumber ?? 'number pending'} · {shipment.status}{shipment.estimatedDeliveryDate ? ` · Estimated delivery ${shipment.estimatedDeliveryDate}` : ''}</Text>
                         ))}
@@ -147,7 +148,7 @@ export default function OrderHistoryScreen() {
                       <Text style={styles.fee}>
                         {latest?.payment.actualChargeCents !== null && latest?.payment.actualChargeCents !== undefined
                           ? `Captured: ${latest.payment.currency ?? 'Currency unconfirmed'} ${(latest.payment.actualChargeCents / 100).toFixed(2)}`
-                          : `Service fee: ${money(o.zincOrderId && o.serviceFee !== null ? o.serviceFee + 1 : o.serviceFee)} · captured amount unconfirmed`}
+                          : `Recorded FetchIt fee: ${money(o.serviceFee)} · captured amount unconfirmed`}
                       </Text>
                     </View>
                   </View>

@@ -1,0 +1,14 @@
+{
+  "observedAt": "2026-10-11T19:35:02.559Z",
+  "scope": "existing isolated Zinc sandbox order read only",
+  "simulated": true,
+  "connectState": "secured",
+  "paymentIntentReferencePresent": false,
+  "paymentIntentReferenceIsSimulation": false,
+  "connectedAccountReferencePresent": false,
+  "connectedAccountReferenceIsSimulation": false,
+  "finalChargeCents": null,
+  "stripeFeeCents": null,
+  "transferCents": null,
+  "financialMutations": 0
+}

@@ -1,0 +1,72 @@
+{
+  "observedAt": "2026-10-11T20:08:17.292Z",
+  "effectiveStripeSecret": "STRIPE_SECRET_KEY",
+  "accountVerified": true,
+  "chargesEnabled": true,
+  "payoutsEnabled": true,
+  "cardPayments": "active",
+  "accountType": "standard",
+  "controllerReturned": true,
+  "explicitAccountLookup": "same_account_verified",
+  "feePayerFieldReturned": false,
+  "controllerType": "account",
+  "feePayer": null,
+  "lossesPayments": null,
+  "dashboardType": null,
+  "financialOperations": 0,
+  "integratedSettlementVerified": false,
+  "zincOrders": [
+    {
+      "status": "order_failed",
+      "connectState": "released",
+      "simulated": false,
+      "expectedAccountLinked": true,
+      "paymentReferencePresent": true,
+      "securedCents": 765,
+      "orderCostCents": null,
+      "marginCents": null,
+      "zincFeeCents": 100,
+      "stripeFeeCents": null,
+      "finalChargeCents": null,
+      "transferCents": null,
+      "retailerCosts": {
+        "subtotal": 399,
+        "shipping": 699,
+        "tax": 74,
+        "total": 1172
+      },
+      "stripePayment": {
+        "live": true,
+        "status": "canceled",
+        "amountCents": 765,
+        "capturableCents": 0,
+        "receivedCents": 0,
+        "applicationPresent": true,
+        "applicationFeeCents": 499,
+        "transferAmountCents": null,
+        "balanceAvailable": false,
+        "balanceFeeCents": null,
+        "balanceNetCents": null,
+        "fees": []
+      }
+    }
+  ],
+  "recentStripePayments": [
+    {
+      "live": true,
+      "status": "canceled",
+      "amountCents": 765,
+      "capturableCents": 0,
+      "receivedCents": 0,
+      "applicationPresent": true,
+      "applicationFeeCents": 499,
+      "transferAmountCents": null,
+      "balanceAvailable": false,
+      "balanceFeeCents": null,
+      "balanceNetCents": null,
+      "fees": []
+    }
+  ],
+  "zincIdentityVerified": true,
+  "walletOrderFeeCents": 100
+}

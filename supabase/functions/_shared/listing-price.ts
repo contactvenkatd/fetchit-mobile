@@ -4,6 +4,8 @@ export interface AmazonEvidence {
   asin: string; sellerId: string; sellerName: string; condition: 'New';
   variants: { label: string; value: string }[];
   minimumQuantity?: number;
+  marketplaceFulfilled?: boolean | null;
+  shippingOptions?: { name: string; price: number | null }[];
 }
 interface ListingPrice { url: string; unitPriceCents: number; currency: 'USD'; expiresAt: number; amazon?: AmazonEvidence }
 const hex = (bytes: ArrayBuffer) => Array.from(new Uint8Array(bytes), v => v.toString(16).padStart(2, '0')).join('');

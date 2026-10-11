@@ -248,7 +248,11 @@ Deno.serve(async (req) => {
             (body.priceCeiling !== null && offer.price > Math.round(body.priceCeiling * 100))) return null;
         const url = `https://www.amazon.com/dp/${asin}`;
         const amazon = { asin, sellerId: offer.seller.id, sellerName: offer.seller.name, condition: 'New' as const, variants: requested,
-          minimumQuantity: offer.minimum_quantity ?? 1 };
+          minimumQuantity: offer.minimum_quantity ?? 1,
+          marketplaceFulfilled: typeof offer.marketplace_fulfilled === 'boolean' ? offer.marketplace_fulfilled : null,
+          shippingOptions: Array.isArray(offer.shipping_options) ? offer.shipping_options.slice(0, 20)
+            .filter((option: any) => typeof option?.name === 'string' && /^[a-zA-Z -]{1,60}$/.test(option.name))
+            .map((option: any) => ({ name: option.name, price: Number.isSafeInteger(option.price) && option.price >= 0 ? option.price : null })) : [] };
         return {
           title: `${details.title ?? row.title} · New · Quoted seller: ${offer.seller.name}; seller may vary`,
           price: offer.price, currency: offer.currency, image: details.main_image ?? row.image ?? null,

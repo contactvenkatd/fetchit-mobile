@@ -16,6 +16,7 @@ import {
   type Order,
   type PeriodKey,
 } from '@/lib/data';
+import { getCheckoutOrderStatus } from '@/services/orderService';
 import { Colors, FontSize, Radius, Spacing } from '@/theme/colors';
 
 // Orders & Analytics — full port of the web app's OrdersAnalytics.js: spend
@@ -67,16 +68,26 @@ export default function OrdersAnalyticsScreen() {
     if (!email) return undefined;
     let active = true;
     setFetching(true);
-    getOrders().then((list) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      const list = await getOrders();
+      const refreshed = await Promise.all(list.map(async order => {
+        if (!order.zincOrderId) return order;
+        try {
+          const latest = await getCheckoutOrderStatus(order.id);
+          return { ...order, status: latest.zincStatus, zincErrorCode: latest.errorCode };
+        } catch { return order; }
+      }));
       if (!active) return;
-      setOrders(list);
-      setFetching(false);
-    });
+      setOrders(refreshed); setFetching(false);
+      timer = setTimeout(refresh, 30000);
+    };
+    void refresh();
     getOrderStreak().then((n) => {
       if (active) setStreak(n);
     });
     return () => {
-      active = false;
+      active = false; clearTimeout(timer);
     };
   }, [email]);
 
@@ -201,6 +212,7 @@ export default function OrdersAnalyticsScreen() {
                         .filter(Boolean)
                         .join('  ·  ')}
                     </Text>
+                    {o.zincErrorCode ? <Text style={styles.meta}>Order error: {o.zincErrorCode.replaceAll('_', ' ')}</Text> : null}
                     <View style={styles.prices}>
                       <Text style={styles.price}>{money(o.orderPrice)}</Text>
                       <Text style={styles.fee}>

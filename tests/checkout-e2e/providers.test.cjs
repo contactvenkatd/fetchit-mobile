@@ -26,3 +26,21 @@ test('sandbox boundary rejects other endpoints, retailer URLs and redirects befo
     products: [{ url: 'https://www.amazon.com/dp/real-product' }],
   }) }));
 });
+test('sandbox net-margin diagnostics permit schema numeric nonnegative margins and reject invalid costs', async () => {
+  const original=global.fetch;let calls=0;
+  global.fetch=async()=>{calls++;return {ok:true};};
+  const request=sandboxFetch('zn_test_fixture');
+  const body={products:[{url:'https://zinc.com/shop/products/test-success'}],
+    payment:{mode:'connect',margin:{type:'flat',value:0}},idempotency_key:'fixture'};
+  try {
+    for(const value of [0,44,68.5]) {
+      body.payment.margin.value=value;
+      await request('https://api.zinc.com/orders',{method:'POST',body:JSON.stringify(body)});
+    }
+    for(const value of [-1,Infinity,10001]) {
+      body.payment.margin.value=value;
+      await assert.rejects(request('https://api.zinc.com/orders',{method:'POST',body:JSON.stringify(body)}));
+    }
+    assert.equal(calls,3);
+  } finally {global.fetch=original;}
+});

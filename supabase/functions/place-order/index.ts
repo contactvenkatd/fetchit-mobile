@@ -180,7 +180,22 @@ Deno.serve(async (req) => {
       .select('id,zinc_order_id').eq('id', statusRequest.orderId).eq('user_id', user.id).maybeSingle();
     if (lookupError || !ownedOrder) return failure('order_not_found', 'The order could not be found.', 404);
     try {
-      return json({ status: await readOrderStatus(ownedOrder.zinc_order_id, zincApiKey) });
+      const checkedAt = new Date().toISOString();
+      const status = await readOrderStatus(ownedOrder.zinc_order_id, zincApiKey);
+      let synchronization = 'unavailable';
+      try {
+        // Ownership was established using the caller's JWT above. The backend
+        // writes only this same user's same provider order, regardless of RLS
+        // update policies for customer clients.
+        const statusStore = createClient(supabaseUrl, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? supabaseAnonKey, { auth: { persistSession: false } });
+        const { error: syncError } = await statusStore.from('orders').update({
+          status: status.zincStatus, zinc_error_code: status.errorCode,
+          zinc_cost_evidence: status.costEvidence, zinc_status_checked_at: checkedAt,
+        }).eq('id', ownedOrder.id).eq('user_id', user.id).eq('zinc_order_id', ownedOrder.zinc_order_id)
+          .or(`zinc_status_checked_at.is.null,zinc_status_checked_at.lt.${checkedAt}`);
+        if (!syncError) synchronization = 'saved';
+      } catch { /* A persistence outage must not hide a freshly read failure. */ }
+      return json({ status, synchronization });
     } catch {
       return failure('order_status_unavailable', 'The latest order or payment status could not be verified. Do not submit another purchase.', 502);
     }
@@ -253,7 +268,7 @@ Deno.serve(async (req) => {
   const quote = await createCheckoutQuote({
     userId: user.id, productUrl: orderBody.productUrl, quantity: orderBody.quantity, variants: orderBody.variants,
     retailerBudgetCents: orderBody.displayedPriceCents,
-    itemSubtotalCents, currency: orderBody.currency,
+    itemSubtotalCents, currency: orderBody.currency, listingEvidence: listing.amazon ?? null,
     profile: { customer, paymentMethod, firstName: name.firstName, lastName: name.lastName,
       addressLine1, addressLine2: String(profile.address_line2 ?? '').trim(), city,
       state: String(profile.state ?? '').trim(), postalCode, country, phone },
@@ -263,6 +278,11 @@ Deno.serve(async (req) => {
   if (orderBody.action === 'quote') return json({ quote });
   if (!approvesQuote(orderBody.approval, quote)) return failure('checkout_approval_required',
     'The checkout estimate or details changed. Review and approve the updated estimate before placing your order.', 409);
+
+  // Only this revision with explicit consent to separately disclosed, unknown
+  // processing permits submission. Old combined-total approvals are invalid.
+  if (!quote.canSubmit) return failure('checkout_payment_contract_unavailable',
+    'The disclosed processing payment contract is unavailable. No order was submitted.', 409);
 
   // Validate references against the backend's Stripe account before Zinc can
   // submit an order. Stale test cards require fresh live card collection.
@@ -300,7 +320,8 @@ Deno.serve(async (req) => {
       phone_number: phone,
       country,
     },
-    // Retailer costs only. Zinc and processing fees are additional, as approved.
+    // Retailer budget only. Zinc collects $1 automatically; margin excludes it.
+    // Additional provider processing is separately disclosed and explicitly approved.
     max_price: quote.retailerBudgetCents,
     metadata: { fetchit_item_subtotal_cents: quote.itemSubtotalCents,
       fetchit_margin_cents: quote.fetchitMarginCents, zinc_fee_cents: quote.zincFeeCents,
@@ -365,10 +386,17 @@ Deno.serve(async (req) => {
       user_id: user.id,
       product_name: orderBody.productName.trim(),
       order_price: orderPriceDollars,
-      service_fee: quote.fetchitMarginCents / 100,
+      service_fee: quote.serviceFeeCents / 100,
       product_image: orderBody.productImage,
       retailer: orderBody.retailer.trim(),
       category: null,
+      checkout_evidence: { revision: quote.revision, itemSubtotalCents: quote.itemSubtotalCents,
+        fetchitFeeCents: quote.serviceFeeCents, fetchitMarginCents: quote.fetchitMarginCents,
+        zincFeeCents: quote.zincFeeCents, paymentFeeCents: quote.paymentFeeCents, shippingCents: quote.shippingCents, taxCents: quote.taxCents,
+        retailerBudgetCents: quote.retailerBudgetCents, approvedQuoteId: quote.id,
+        paymentContract: quote.paymentContract, acceptsProcessingFee: true, acceptsVariableFees: true,
+        processingRateVerified: false, estimatedTotalCents: quote.estimatedTotalCents,
+        quantity: orderBody.quantity, quotedOffer: listing.amazon ?? null },
       zinc_order_id: zincOrder.id,
       status: simulated ? 'configuration_failed' : zincOrder.status,
     })

@@ -1,0 +1,88 @@
+{
+  "observedAt": "2026-10-11T19:57:10.008308+00:00",
+  "projectRef": "fpphpncruohjlppqhfep",
+  "secrets": [
+    {
+      "name": "STRIPE_SECRET_KEY",
+      "updatedAt": "2026-10-11T19:55:46.009Z"
+    }
+  ],
+  "functions": [
+    {
+      "slug": "create-setup-intent",
+      "version": 19,
+      "status": "ACTIVE",
+      "updatedAt": 1789965378656
+    },
+    {
+      "slug": "place-order",
+      "version": 19,
+      "status": "ACTIVE",
+      "updatedAt": 1791694350948
+    },
+    {
+      "slug": "stripe-readiness",
+      "version": 19,
+      "status": "ACTIVE",
+      "updatedAt": 1789974217792
+    }
+  ],
+  "readiness": {
+    "stripeAuthenticated": true,
+    "keyMode": "live",
+    "balanceLiveMode": true,
+    "accountId": "acct_1Th9uUQg8UTscDty",
+    "chargesEnabled": true,
+    "payoutsEnabled": true,
+    "detailsSubmitted": true,
+    "capabilities": {
+      "card_payments": "active",
+      "transfers": "active"
+    },
+    "profileAudit": {
+      "profiles": 3,
+      "valid": 1,
+      "missingReferences": 1,
+      "wrongModeOrOwner": 1,
+      "unavailable": 0
+    },
+    "publishableKeyPairing": {
+      "verified": true,
+      "method": "existing_setup_intent_readback"
+    }
+  },
+  "paymentSource": {
+    "deployedSourceComplete": true,
+    "stripeSecretNames": [
+      "STRIPE_SECRET_KEY"
+    ],
+    "paymentStripeSelectors": [
+      "STRIPE_SECRET_KEY"
+    ],
+    "entryCallsPaymentStripe": true,
+    "overrideReferenced": false
+  },
+  "readinessSource": {
+    "deployedSourceComplete": true,
+    "stripeSecretNames": [
+      "STRIPE_SECRET_KEY"
+    ],
+    "paymentStripeSelectors": [],
+    "entryCallsPaymentStripe": false,
+    "overrideReferenced": false
+  },
+  "setupSource": {
+    "deployedSourceComplete": true,
+    "stripeSecretNames": [
+      "STRIPE_SECRET_KEY"
+    ],
+    "paymentStripeSelectors": [
+      "STRIPE_SECRET_KEY"
+    ],
+    "entryCallsPaymentStripe": true,
+    "overrideReferenced": false
+  },
+  "effectivePaymentSecretName": "STRIPE_SECRET_KEY",
+  "overrideSecretConfigured": false,
+  "financialOperations": 0
+}

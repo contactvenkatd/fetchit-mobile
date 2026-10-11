@@ -35,6 +35,7 @@ export type Order = {
   orderPrice: number | null;
   serviceFee: number | null;
   zincOrderId: string | null;
+  zincErrorCode?: string | null;
   status: string | null;
   createdAt: string | null;
 };
@@ -49,6 +50,7 @@ type OrderRow = {
   price?: number | string | null;
   service_fee?: number | string | null;
   zinc_order_id?: string | null;
+  zinc_error_code?: string | null;
   status?: string | null;
   created_at?: string | null;
 };
@@ -65,6 +67,7 @@ const mapOrder = (row: OrderRow): Order => ({
     row.order_price != null ? Number(row.order_price) : parsePrice(row.price),
   serviceFee: row.service_fee != null ? Number(row.service_fee) : null,
   zincOrderId: row.zinc_order_id ?? null,
+  zincErrorCode: row.zinc_error_code ?? null,
   status: row.status ?? null,
   createdAt: row.created_at ?? null,
 });

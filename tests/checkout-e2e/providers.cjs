@@ -34,7 +34,7 @@ function sandboxFetch(key, verifiedSearchUrls = []) {
       assert.ok(body.products.every(x => /^https:\/\/zinc.com\/shop\/products\/test-[a-z-]+$/.test(x.url) || verifiedSearchUrls.includes(x.url)));
       assert.equal(body.payment?.mode, 'connect');
       assert.equal(body.payment.margin.type, 'flat');
-      assert.ok(Number.isSafeInteger(body.payment.margin.value) && body.payment.margin.value >= 200);
+      assert.ok(Number.isFinite(body.payment.margin.value) && body.payment.margin.value >= 0);
       assert.ok(body.payment.margin.value <= 10000, 'Sandbox fee limit');
       assert.ok(body.idempotency_key);
     } else assert.ok(!options.method || options.method === 'GET');

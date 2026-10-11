@@ -35,7 +35,7 @@ function screen(placeOrder, pricingReady = true, approved = true) {
   const context = {
     validProduct: true, hasAddress: true, hasCard: true, pricing: { canSubmit: pricingReady },
     budgetAcknowledged: true, zeroHeadroomAcknowledged: true, submitting: false, submissionLocked: { current: false },
-    quote: pricingReady ? { id: "a".repeat(64), mode: "estimate", knownCostsCents: 1335, fetchitMarginCents: 235, serviceFeeCents: 335, retailerBudgetCents: 1000, currency: "USD", expiresAt: Date.now() + 100000 } : null,
+    quote: pricingReady ? { canSubmit: true, id: "a".repeat(64), mode: "estimate", knownCostsCents: 1235, fetchitMarginCents: 135, serviceFeeCents: 235, retailerBudgetCents: 1000, currency: "USD", expiresAt: Date.now() + 100000 } : null,
     approvedQuoteId: approved ? "a".repeat(64) : null, retailerBudgetCents: 1000,
     hasApprovedEstimate: load("src/services/checkoutPricing.ts", { exports: {} }).exports.hasApprovedEstimate,
     setApprovedQuoteId(value) { context.approvedQuoteId = value; },
@@ -145,7 +145,7 @@ function backend({ persistFails = false, zincStatus = 201, zincKey = "zn_live_fi
     Response, URL, AbortSignal, console: { error() {} },
     Deno: { env: { get: name => name === 'ZINC_API_KEY' ? zincKey : name === 'SUPABASE_URL' ? (production ? 'https://fpphpncruohjlppqhfep.supabase.co' : 'https://fixture.example') : 'fixture' }, serve: fn => { handler = fn; } },
     verifyListingPrice: async () => ({ unitPriceCents: 1000, currency: 'USD' }),
-    createCheckoutQuote: async () => { issuedQuote = pricingSupported ? { id: 'a'.repeat(64), mode: "estimate", knownCostsCents: 1335, fetchitMarginCents: 235, serviceFeeCents: 335, retailerBudgetCents: 1000, currency: 'USD', expiresAt: Date.now() + 100000 } : null; return issuedQuote; },
+    createCheckoutQuote: async () => { issuedQuote = pricingSupported ? { canSubmit: true, id: 'a'.repeat(64), mode: "estimate", knownCostsCents: 1235, fetchitMarginCents: 135, serviceFeeCents: 235, retailerBudgetCents: 1000, currency: 'USD', expiresAt: Date.now() + 100000 } : null; return issuedQuote; },
     approvesQuote: load('supabase/functions/_shared/checkout-pricing.ts', { exports: {} }).exports.approvesQuote,
     createClient: () => client, stripeIsLive: () => stripeLive,
     paymentStripe: () => ({
@@ -157,7 +157,7 @@ function backend({ persistFails = false, zincStatus = 201, zincKey = "zn_live_fi
       calls.zinc++;
       assert.equal(url, 'https://api.zinc.com/orders');
       assert.equal(JSON.parse(options.body).max_price, 1000); // Zinc/processing fees must not enter the retailer budget.
-      assert.equal(JSON.parse(options.body).payment.margin.value, 235);
+      assert.equal(JSON.parse(options.body).payment.margin.value, 135);
       assert.equal(JSON.parse(options.body).idempotency_key, '00000000-0000-4000-8000-000000000000');
       return Response.json(zincStatus === 201 ? { id: 'zinc_fixture', status: 'pending', connect: { simulated } } : { error: { code: 'fixture_rejected', message: 'Rejected' } }, { status: zincStatus });
     },
@@ -167,7 +167,7 @@ function backend({ persistFails = false, zincStatus = 201, zincKey = "zn_live_fi
   const run = (overrides = {}) => handler(new Request('https://fixture.example', { method: 'POST', headers: { Authorization: 'Bearer fixture' }, body: JSON.stringify({
     productUrl: 'https://retailer.example/item', quantity: 1, itemSubtotalCents: 1000, unitPriceCents: 1000, listingProof: 'fixture', currency: "USD", displayedPriceCents: 1000,
     productName: 'Fixture', productImage: null, retailer: 'Fixture', idempotencyKey: '00000000-0000-4000-8000-000000000000',
-    approval: { quoteId: 'a'.repeat(64), mode: "estimate", acceptsVariableFees: true, retailerBudgetCents: 1000, currency: 'USD' }, ...overrides,
+    approval: { quoteId: 'a'.repeat(64), mode: "estimate", acceptsVariableFees: true, acceptsProcessingFee: true, retailerBudgetCents: 1000, currency: 'USD' }, ...overrides,
   }) }));
   return { run, calls };
 }
@@ -260,16 +260,16 @@ test('quote-only request cannot submit Zinc or write an order/payment', async ()
   const api = backend();
   const response = await api.run({ action: 'quote', approval: undefined });
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).quote.knownCostsCents, 1335);
+  assert.equal((await response.json()).quote.knownCostsCents, 1235);
   assert.deepEqual(api.calls, { zinc: 0, inserts: 0, stripeWrites: 0 });
 });
 
 for (const approval of [undefined, {},
   { quoteId: 'a'.repeat(64), maximumCents: 1100, currency: 'USD' },
   { quoteId: 'a'.repeat(64), mode: 'estimate', acceptsVariableFees: false, retailerBudgetCents: 1000, currency: 'USD' },
-  { quoteId: 'a'.repeat(64), mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: 1001, currency: 'USD' },
-  { quoteId: 'b'.repeat(64), mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: 1000, currency: 'USD' },
-  { quoteId: 'a'.repeat(64), mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: 1000, currency: 'EUR' }]) {
+  { quoteId: 'a'.repeat(64), mode: 'estimate', acceptsVariableFees: true, acceptsProcessingFee: true, retailerBudgetCents: 1001, currency: 'USD' },
+  { quoteId: 'b'.repeat(64), mode: 'estimate', acceptsVariableFees: true, acceptsProcessingFee: true, retailerBudgetCents: 1000, currency: 'USD' },
+  { quoteId: 'a'.repeat(64), mode: 'estimate', acceptsVariableFees: true, acceptsProcessingFee: true, retailerBudgetCents: 1000, currency: 'EUR' }]) {
   test(`server rejects missing, changed or forged approval: ${JSON.stringify(approval)}`, async () => {
     const api = backend();
     const response = await api.run({ approval });
@@ -286,10 +286,10 @@ test('real estimate binds all context and validity without inventing unknown fee
     profile: { payment: 'pm_fixture', address: 'fixture' } };
   const now = 600000;
   const quote = await module.createCheckoutQuote(context, now);
-  assert.equal(quote.knownCostsCents, 1335); assert.equal(quote.zincFeeCents, 100);
+  assert.equal(quote.knownCostsCents, 1235); assert.equal(quote.zincFeeCents, 100);
   for (const field of ['shippingCents', 'taxCents', 'paymentFeeCents', 'estimatedTotalCents']) assert.equal(quote[field], null);
   assert.equal(quote.maximumCents, undefined);
-  const approval = { quoteId: quote.id, mode: 'estimate', acceptsVariableFees: true,
+  const approval = { quoteId: quote.id, mode: 'estimate', acceptsVariableFees: true, acceptsProcessingFee: true,
     retailerBudgetCents: 1200, currency: quote.currency };
   assert.equal(module.approvesQuote(approval, quote, now), true);
   assert.equal(module.approvesQuote(approval, quote, quote.expiresAt), false);
@@ -309,7 +309,7 @@ test('real estimate binds all context and validity without inventing unknown fee
 
 test('approval copy discloses additional unknown fees; budget parsing does not round hidden fractions', () => {
   const api = load('src/services/checkoutPricing.ts', { exports: {} }).exports;
-  assert.equal(api.estimateApprovalText(1234), 'Estimated total: USD 12.34 + shipping, taxes, and processing fees (amounts unknown).');
+  assert.equal(api.estimateApprovalText(1234), 'Total: Unknown — shipping, tax and processing are not yet confirmed.');
   assert.equal(api.parseRetailerBudget('12.34'), 1234);
   assert.equal(api.formatUsdCents(Number.MAX_SAFE_INTEGER), '90071992547409.91');
   assert.equal(api.formatUsdCents(1), '0.01');
@@ -328,14 +328,14 @@ for (const code of ['checkout_approval_required', 'max_price_exceeded']) {
 }
 
 test('client rejects malformed, expired, wrong-currency and wrong-budget server quotes', async () => {
-  const valid = { id: 'a'.repeat(64), mode: 'estimate', revision: 'usd-explicit-budget-v3',
-    itemSubtotalCents: 1000, knownCostsCents: 1335, fetchitMarginCents: 235, serviceFeeCents: 335, retailerBudgetCents: 1000, currency: 'USD',
-    zincFeeCents: 100, fetchitMarginCents: 235, serviceFeeCents: 335, shippingCents: null, taxCents: null,
+  const valid = { id: 'a'.repeat(64), mode: 'estimate', revision: 'usd-disclosed-processing-v7', canSubmit: true, paymentContract: 'disclosed_variable_processing',
+    itemSubtotalCents: 1000, knownCostsCents: 1235, fetchitMarginCents: 135, serviceFeeCents: 235, retailerBudgetCents: 1000, currency: 'USD',
+    zincFeeCents: 100, shippingCents: null, taxCents: null,
     paymentFeeCents: null, estimatedTotalCents: null, expiresAt: Date.now() + 100000 };
   const input = { displayedPriceCents: 1000, itemSubtotalCents: 1000, currency: 'USD' };
   for (const change of [{ id: 'invalid' }, { mode: 'maximum' }, { knownCostsCents: 999 },
     { knownCostsCents: 1100.5 }, { itemSubtotalCents: 999 }, { paymentFeeCents: 30 },
-    { zincFeeCents: 101 }, { fetchitMarginCents: 1 }, { currency: 'EUR' },
+    { zincFeeCents: 101 }, { fetchitMarginCents: 1 }, { fetchitMarginCents: 235 }, { serviceFeeCents: 135 }, { currency: 'EUR' },
     { retailerBudgetCents: 900 }, { expiresAt: Date.now() - 1 }, { revision: 'old' }]) {
     const api = service(async () => ({ data: { quote: { ...valid, ...change } } }));
     await assert.rejects(api.getCheckoutQuote(input), error => error.code === 'checkout_pricing_unavailable');
