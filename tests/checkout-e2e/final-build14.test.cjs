@@ -1,3 +1,9 @@
+async function approveBudget(ui, fallback = '10.00') {
+  const input = ui.container.querySelector('input[aria-label="Retailer spending limit in USD"]');
+  if (input && !input.value) await ui.setBudget(fallback);
+  if (ui.button('Acknowledge zero shipping/tax headroom')) await ui.click('Acknowledge zero shipping/tax headroom');
+  await ui.click('Approve estimate');
+}
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { backend, mount, mountHistory, load, profile, localOrderId, zincId } = require('./harness.cjs');
@@ -17,9 +23,9 @@ async function verifySearchToCheckout(upstream, key = 'zn_test_fixture') {
   const ui = mount(app.api, 'test-success', { productUrl: result.url, currency: result.currency,
     listingProof: result.listingProof, priceCents: String(result.price), quantity: '2', size: 'Large', color: 'Black' });
   try {
-    await ui.start(); assert.match(ui.container.textContent, /Service fee: USD 3.70/);
+    await ui.start(); await ui.setBudget('25.00'); assert.match(ui.container.textContent, /Service fee: USD 3.70/);
     assert.equal(ui.button('Place Order').disabled, true);
-    await ui.setBudget('25.00'); await ui.click('Approve estimate');
+    await ui.setBudget('25.00'); await approveBudget(ui);
     await ui.act(async () => { const button = ui.button('Place Order'); button.click(); button.click(); }); await ui.flush();
     const deadline = Date.now() + 15000;
     while (app.calls.inserts.length === 0 && Date.now() < deadline) await ui.flush();
@@ -96,7 +102,7 @@ if (process.env.RUN_BUILD14_TARGETED_ZINC_SANDBOX === '1') {
     } });
     const checkout = mount(app.api);
     try {
-      await checkout.start(); await checkout.click('Approve estimate'); await checkout.click('Place Order');
+      await checkout.start(); await approveBudget(checkout); await checkout.click('Place Order');
       const deadline = Date.now() + 15000;
       while (!acceptedId && Date.now() < deadline) await checkout.flush();
       assert.ok(acceptedId); await checkout.flush();
@@ -137,7 +143,7 @@ if (process.env.RUN_BUILD14_TARGETED_ZINC_SANDBOX === '1') {
         job_result: phase === 'failed' ? { error_type: 'product_out_of_stock' } : null,
         tracking_numbers: [{ carrier: 'ups', tracking_number: '1ZFIXTURE', status: phase }], connect: { simulated: true } });
     } });
-    const checkout = mount(app.api); await checkout.start(); await checkout.click('Approve estimate'); await checkout.click('Place Order'); await checkout.close();
+    const checkout = mount(app.api); await checkout.start(); await approveBudget(checkout); await checkout.click('Place Order'); await checkout.close();
     const history = mountHistory(app.reloadApi(), [{ id: localOrderId, zincOrderId: zincId, status: 'completed', orderPrice: 10, serviceFee: 2.35 }], {
       setTimeout: (fn, milliseconds) => { assert.equal(milliseconds, 30000); poll = fn; return 1; }, clearTimeout: () => {},
     });

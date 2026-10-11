@@ -1,6 +1,6 @@
 // Zinc Connect documents its standard $1 fee independently of wallet pricing.
 // Account processing terms are not verified: unknown components stay null.
-export const ESTIMATE_REVISION = 'usd-service-fee-v2';
+export const ESTIMATE_REVISION = 'usd-explicit-budget-v3';
 export interface CheckoutQuote {
   id: string;
   mode: 'estimate';
@@ -42,7 +42,7 @@ export async function createCheckoutQuote(
   if (margin === null || !Number.isSafeInteger(context.itemSubtotalCents + margin + 100) || context.currency !== 'USD' ||
       !Number.isSafeInteger(context.itemSubtotalCents) || context.itemSubtotalCents <= 0 ||
       !Number.isSafeInteger(context.itemSubtotalCents + 100) ||
-      !Number.isSafeInteger(context.retailerBudgetCents) || context.retailerBudgetCents <= 0 ||
+      !Number.isSafeInteger(context.retailerBudgetCents) || context.retailerBudgetCents < context.itemSubtotalCents ||
       !Number.isInteger(context.quantity) || context.quantity < 1 || context.quantity > 100) return null;
   const expiresAt = (Math.floor(now / 300000) + 1) * 300000;
   const terms = {
@@ -63,8 +63,10 @@ export async function createCheckoutQuote(
 export function approvesQuote(approval: unknown, quote: CheckoutQuote, now = Date.now()): boolean {
   if (!approval || typeof approval !== 'object' || now >= quote.expiresAt) return false;
   const value = approval as Record<string, unknown>;
-  // Old maximum approvals cannot authorize variable-fee checkout.
+  // Budget and zero-headroom acknowledgment must accompany this exact quote.
   return value.quoteId === quote.id && value.mode === 'estimate' &&
-    value.acceptsVariableFees === true && value.retailerBudgetCents === quote.retailerBudgetCents &&
+    value.acceptsVariableFees === true &&
+    (quote.retailerBudgetCents !== quote.itemSubtotalCents || value.acknowledgesZeroHeadroom === true) &&
+    value.retailerBudgetCents === quote.retailerBudgetCents &&
     value.currency === quote.currency;
 }

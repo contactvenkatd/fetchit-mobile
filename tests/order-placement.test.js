@@ -34,7 +34,7 @@ function screen(placeOrder, pricingReady = true, approved = true) {
   const calls = { requests: [], orders: [], errors: [], unknown: [] };
   const context = {
     validProduct: true, hasAddress: true, hasCard: true, pricing: { canSubmit: pricingReady },
-    submitting: false, submissionLocked: { current: false },
+    budgetAcknowledged: true, zeroHeadroomAcknowledged: true, submitting: false, submissionLocked: { current: false },
     quote: pricingReady ? { id: "a".repeat(64), mode: "estimate", knownCostsCents: 1335, fetchitMarginCents: 235, serviceFeeCents: 335, retailerBudgetCents: 1000, currency: "USD", expiresAt: Date.now() + 100000 } : null,
     approvedQuoteId: approved ? "a".repeat(64) : null, retailerBudgetCents: 1000,
     hasApprovedEstimate: load("src/services/checkoutPricing.ts", { exports: {} }).exports.hasApprovedEstimate,
@@ -328,7 +328,7 @@ for (const code of ['checkout_approval_required', 'max_price_exceeded']) {
 }
 
 test('client rejects malformed, expired, wrong-currency and wrong-budget server quotes', async () => {
-  const valid = { id: 'a'.repeat(64), mode: 'estimate', revision: 'usd-service-fee-v2',
+  const valid = { id: 'a'.repeat(64), mode: 'estimate', revision: 'usd-explicit-budget-v3',
     itemSubtotalCents: 1000, knownCostsCents: 1335, fetchitMarginCents: 235, serviceFeeCents: 335, retailerBudgetCents: 1000, currency: 'USD',
     zincFeeCents: 100, fetchitMarginCents: 235, serviceFeeCents: 335, shippingCents: null, taxCents: null,
     paymentFeeCents: null, estimatedTotalCents: null, expiresAt: Date.now() + 100000 };

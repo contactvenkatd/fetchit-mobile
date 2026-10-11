@@ -1,5 +1,11 @@
 # Amazon US checkout verification
 
+> Superseded for new checkout by the [explicit-budget release](explicit-budget-release.md).
+> Production place-order v18 rejects build 14’s v2 consent; build 14 rejects v3
+> quotes. Existing status/recovery paths remain, and pending attempts stay locked.
+> Use replacement build 15 for new checkout after TestFlight availability is verified.
+> The build-14 artifact and Apple evidence below are historical.
+
 **Expected to order eligible Amazon US items through Zinc and ship to the authenticated customer's saved US address. Install build 14.** No client change or rebuild was necessary. Place-order and search-products are **v17 ACTIVE**, JWT verification enabled. Downloaded deployed source maps match the final tested handlers, price-evidence, fee and status modules exactly. Build 14's client digests, signed IPA checksum and release selection are unchanged. Production credentials are unchanged.
 
 ## Currency and product identity

@@ -10,7 +10,7 @@ export interface CheckoutQuote {
 }
 
 export interface PlaceOrderInput {
-  approval?: { quoteId: string; mode: "estimate"; acceptsVariableFees: true; retailerBudgetCents: number; currency: "USD" };
+  approval?: { quoteId: string; mode: "estimate"; acceptsVariableFees: true; acknowledgesZeroHeadroom?: boolean; retailerBudgetCents: number; currency: "USD" };
   itemSubtotalCents: number;
   unitPriceCents: number;
   listingProof: string;
@@ -131,7 +131,7 @@ export async function getCheckoutQuote(input: PlaceOrderInput): Promise<Checkout
   if (error) throw await functionError(error);
   const quote = data?.quote as CheckoutQuote | undefined;
   if (!quote || !/^[a-f0-9]{64}$/.test(quote.id) || quote.currency !== 'USD' ||
-      quote.mode !== 'estimate' || quote.revision !== 'usd-service-fee-v2' ||
+      quote.mode !== 'estimate' || quote.revision !== 'usd-explicit-budget-v3' ||
       input.currency !== 'USD' || quote.itemSubtotalCents !== input.itemSubtotalCents ||
       !Number.isSafeInteger(quote.knownCostsCents) || quote.knownCostsCents !== input.itemSubtotalCents + quote.serviceFeeCents ||
       quote.zincFeeCents !== 100 || (!Number.isSafeInteger(quote.fetchitMarginCents) || quote.fetchitMarginCents < 200) ||
@@ -139,6 +139,7 @@ export async function getCheckoutQuote(input: PlaceOrderInput): Promise<Checkout
       quote.shippingCents !== null || quote.taxCents !== null || quote.paymentFeeCents !== null ||
       quote.estimatedTotalCents !== null ||
       quote.retailerBudgetCents !== input.displayedPriceCents ||
+      !Number.isSafeInteger(quote.retailerBudgetCents) || quote.retailerBudgetCents < quote.itemSubtotalCents ||
       !Number.isSafeInteger(quote.expiresAt) || quote.expiresAt <= Date.now()) {
     throw new PlaceOrderError('checkout_pricing_unavailable', 'The checkout estimate could not be verified. No order was submitted.');
   }

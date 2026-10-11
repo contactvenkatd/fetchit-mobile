@@ -78,14 +78,17 @@ export default function CheckoutConfirmationScreen() {
   const [latestStatus, setLatestStatus] = useState<CheckoutOrderStatus | null>(null);
   const [statusError, setStatusError] = useState('');
   const [budgetInput, setBudgetInput] = useState('');
-  const retailerBudgetCents = budgetInput ? parseRetailerBudget(budgetInput) : totalCents;
+  const retailerBudgetCents = parseRetailerBudget(budgetInput);
+  const [zeroHeadroomAcknowledged, setZeroHeadroomAcknowledged] = useState(false);
+  const budgetValid = retailerBudgetCents !== null && retailerBudgetCents >= totalCents;
+  const budgetAcknowledged = budgetValid && (retailerBudgetCents !== totalCents || zeroHeadroomAcknowledged);
   const [quoteResult, setQuoteResult] = useState<{ quote: CheckoutQuote; context: string } | null>(null);
   const [approvedQuoteId, setApprovedQuoteId] = useState<string | null>(null);
   const [quoteError, setQuoteError] = useState('');
   const [quoteRefresh, setQuoteRefresh] = useState(0);
   const quoteContext = JSON.stringify([productUrl, quantity, variants, listingProof, totalCents, pricing.currency, retailerBudgetCents, profile]);
   const quote = quoteResult?.context === quoteContext ? quoteResult.quote : null;
-  const canSubmit = hasApprovedEstimate(quote, approvedQuoteId);
+  const canSubmit = budgetAcknowledged && hasApprovedEstimate(quote, approvedQuoteId);
 
 
   useEffect(() => {
@@ -130,8 +133,9 @@ export default function CheckoutConfirmationScreen() {
     let active = true;
     setQuoteResult(null);
     setApprovedQuoteId(null);
+    setZeroHeadroomAcknowledged(false);
     setQuoteError('');
-    if (validProduct && hasAddress && hasCard && retailerBudgetCents && !outcomeUnknown && !submissionLocked.current) {
+    if (validProduct && hasAddress && hasCard && budgetValid && retailerBudgetCents && !outcomeUnknown && !submissionLocked.current) {
       getCheckoutQuote({ productUrl, quantity, variants, itemSubtotalCents: totalCents, unitPriceCents, listingProof, currency: 'USD', displayedPriceCents: retailerBudgetCents,
         productName: title, productImage: image, retailer, idempotencyKey }).then(value => {
         if (active) setQuoteResult({ quote: value, context: quoteContext });
@@ -172,7 +176,7 @@ export default function CheckoutConfirmationScreen() {
   }, [placedOrder?.id]);
 
   async function confirmPurchase() {
-    if (!validProduct || !hasAddress || !hasCard || !hasApprovedEstimate(quote, approvedQuoteId) || !retailerBudgetCents || submissionLocked.current) return;
+    if (!validProduct || !hasAddress || !hasCard || !budgetAcknowledged || !hasApprovedEstimate(quote, approvedQuoteId) || !retailerBudgetCents || submissionLocked.current) return;
     submissionLocked.current = true;
     setError('');
     setSubmitting(true);
@@ -182,7 +186,7 @@ export default function CheckoutConfirmationScreen() {
         quantity, variants,
         displayedPriceCents: retailerBudgetCents,
         itemSubtotalCents: totalCents, unitPriceCents, listingProof, currency: 'USD',
-        approval: { quoteId: quote!.id, mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: quote!.retailerBudgetCents, currency: quote!.currency },
+        approval: { quoteId: quote!.id, mode: 'estimate', acceptsVariableFees: true, acknowledgesZeroHeadroom: zeroHeadroomAcknowledged, retailerBudgetCents: quote!.retailerBudgetCents, currency: quote!.currency },
         productName: title,
         productImage: image,
         retailer,
@@ -293,10 +297,19 @@ export default function CheckoutConfirmationScreen() {
           <Text style={styles.detailText}>Estimated total. Final shipping, taxes, and processing fees may vary.</Text>
           <Text style={styles.detailText}>Retailer spending limit in USD, including shipping and taxes:</Text>
           <TextInput accessibilityLabel="Retailer spending limit in USD" keyboardType="decimal-pad"
-            value={budgetInput} placeholder={formatUsdCents(totalCents)}
+            value={budgetInput} placeholder="Enter retailer budget"
             placeholderTextColor={Colors.textFaint} style={styles.budgetInput}
             editable={!submitting && !outcomeUnknown && !submissionLocked.current}
-            onChangeText={value => { setApprovedQuoteId(null); setBudgetInput(value); }} />
+            onChangeText={value => { setApprovedQuoteId(null); setZeroHeadroomAcknowledged(false); setBudgetInput(value); }} />
+          <Text style={styles.detailText}>This budget covers the item, shipping, and tax. Service and processing fees are additional.</Text>
+          <Text style={styles.detailText}>Available shipping/tax headroom: {budgetValid ? formatKnownPrice(retailerBudgetCents! - totalCents, 'USD') : 'Unavailable until a valid budget is entered'}</Text>
+          {!budgetValid ? <Text style={styles.warning}>{budgetInput === '' ? 'Enter an explicit retailer budget before approval.' : 'Enter a valid USD budget at least equal to the item subtotal.'}</Text> : null}
+          {budgetValid && retailerBudgetCents === totalCents ? <>
+            <Text style={styles.warning}>Additional shipping or tax could prevent placement.</Text>
+            <Button label={zeroHeadroomAcknowledged ? 'Zero headroom acknowledged' : 'Acknowledge zero shipping/tax headroom'}
+              variant="secondary" disabled={submitting || outcomeUnknown || submissionLocked.current || zeroHeadroomAcknowledged}
+              onPress={() => { setApprovedQuoteId(null); setZeroHeadroomAcknowledged(true); }} />
+          </> : null}
           {quote ? (
             <>
               <Text style={styles.detailPrimary}>{estimateApprovalText(quote.knownCostsCents)}</Text>
@@ -304,8 +317,8 @@ export default function CheckoutConfirmationScreen() {
               <Text style={styles.detailText}>Retailer budget: USD {formatUsdCents(quote.retailerBudgetCents)} for items, shipping, and taxes only. Service fee and processing fees are additional, so the card hold and final charge may exceed this budget.</Text>
               <Text style={styles.detailText}>By approving, you authorize Zinc to hold the retailer budget plus the Service fee and applicable processing fees, then charge the actual total after retailer placement. Unused authorization is released; your bank controls availability.</Text>
               <Button label={approvedQuoteId === quote.id ? 'Estimate approved' : 'Approve estimate'}
-                variant="secondary" disabled={submitting || outcomeUnknown || approvedQuoteId === quote.id}
-                onPress={() => { if (quote.expiresAt > Date.now()) setApprovedQuoteId(quote.id); }} />
+                variant="secondary" disabled={submitting || outcomeUnknown || !budgetAcknowledged || approvedQuoteId === quote.id}
+                onPress={() => { if (budgetAcknowledged && quote.expiresAt > Date.now()) setApprovedQuoteId(quote.id); }} />
             </>
           ) : <Text style={styles.detailPrimary}>{quoteError || 'Estimate unavailable.'}</Text>}
           {!quote && !submitting && !outcomeUnknown ? (

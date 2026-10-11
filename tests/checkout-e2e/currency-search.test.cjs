@@ -1,3 +1,9 @@
+async function approveBudget(ui, fallback = '10.00') {
+  const input = ui.container.querySelector('input[aria-label="Retailer spending limit in USD"]');
+  if (input && !input.value) await ui.setBudget(fallback);
+  if (ui.button('Acknowledge zero shipping/tax headroom')) await ui.click('Acknowledge zero shipping/tax headroom');
+  await ui.click('Approve estimate');
+}
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load, backend, mount, mountHistory, localOrderId, profile } = require('./harness.cjs');
@@ -66,7 +72,7 @@ if (process.env.RUN_REAL_CURRENCY_SEARCH === '1') {
       assert.equal((checkout.container.textContent.match(/Service fee:/g) || []).length, 1);
       assert.equal(checkout.button('Place Order').disabled, true);
       await checkout.setBudget(String((result.price * 2 + 5000) / 100));
-      await checkout.click('Approve estimate');
+      await approveBudget(checkout);
       await checkout.act(async () => { checkout.button('Place Order').click(); checkout.button('Place Order').click(); });
       const deadline = Date.now() + 20000;
       while (!app.calls.inserts.length && Date.now() < deadline) await checkout.flush();
@@ -144,7 +150,7 @@ if (process.env.RUN_REAL_CURRENCY_SEARCH === '1') {
     const app = backend(); const ui = mount(app.api, 'test-success', { productUrl: result.url,
       priceCents: String(result.price), currency: result.currency, listingProof: result.listingProof, size: '12 inch' });
     try {
-      await ui.start(); await ui.click('Approve estimate'); await ui.click('Place Order');
+      await ui.start(); await approveBudget(ui, '200.00'); await ui.click('Place Order');
       const sent = app.calls.submissions[0]; assert.ok(sent);
       assert.deepEqual(sent.products[0].condition_in, ['New']);
       assert.deepEqual(sent.products[0].variant, [{ label: 'Size', value: '12 inch' }]);

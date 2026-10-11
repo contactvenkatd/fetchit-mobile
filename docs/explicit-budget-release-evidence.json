@@ -1,0 +1,96 @@
+{
+  "functions": [
+    {
+      "slug": "search-products",
+      "version": 17,
+      "status": "ACTIVE",
+      "verify_jwt": true
+    },
+    {
+      "slug": "place-order",
+      "version": 18,
+      "status": "ACTIVE",
+      "verify_jwt": true
+    }
+  ],
+  "deployedSourcesMatch": {
+    "supabase/functions/place-order/index.ts": true,
+    "supabase/functions/_shared/checkout-pricing.ts": true,
+    "supabase/functions/_shared/order-status.ts": true,
+    "supabase/functions/_shared/listing-price.ts": true,
+    "supabase/functions/_shared/stripe-backend.ts": true
+  },
+  "unauthenticatedQuotePreflight": {
+    "httpStatus": 401,
+    "code": "UNAUTHORIZED_NO_AUTH_HEADER"
+  },
+  "buildId": "779b3267-5a4d-4466-bfc4-1f634cee6fab",
+  "version": "1.0.0",
+  "buildNumber": "15",
+  "sourceDigests": {
+    "supabase/functions/place-order/index.ts": "21cb5d40a4b5a69bb0b839a050968a7acbd0d2ad359a0834ba721701a0f63789",
+    "supabase/functions/_shared/checkout-pricing.ts": "cca9ccaa0f23e02ea8feb7c20530b9a8ef401d6527ae8b5d4cf3082e8ef6a62e",
+    "supabase/functions/_shared/stripe-backend.ts": "d324a29ec433862e06f5c1cef43731bfceec26a76b993536e379717157ee18ef",
+    "supabase/functions/_shared/order-status.ts": "4f823aaed7dc85f470d6e2de0a527070be7a00c30e3dd8325fcfc50012071d55",
+    "supabase/functions/_shared/listing-price.ts": "0c38ee78a81364f376cbc904b65875e53a9916a084e919f78ab00350691e3f4b",
+    "src/app/(app)/checkout-confirmation.tsx": "0eb68ad5edc1cf9b7b868ad8ef0a2c882c69c0be423019a4dcfd928f01905dac",
+    "src/services/orderService.ts": "db6765697be2409cb215eaf6e485606e4c7ae70de7ca977d89bb2fbdb0828c09",
+    "src/services/checkoutSubmission.ts": "3dc08108dbe1f7ee0377d051eaa108951a27d168c69f863d182ef1257454365f",
+    "src/services/checkoutPricing.ts": "9f3517f48922d358743847f529fa6056ff71a65a1db408ca61cebd9e79b6d674"
+  },
+  "validationReused": {
+    "checkoutOfflinePassed": 106,
+    "marginRegression": "passed",
+    "typeScriptNoEmit": "passed",
+    "nodePassed": 69,
+    "nodeSkipped": 1,
+    "nodeFailed": 1,
+    "knownUnrelatedFailure": "Google authentication bypass remains disabled"
+  },
+  "liveOrderOrPaymentOperations": 0,
+  "appleStatus": "not uploaded; hidden Terminal credential required",
+  "artifactVerification": {
+    "buildId": "779b3267-5a4d-4466-bfc4-1f634cee6fab",
+    "version": "1.0.0",
+    "buildNumber": "15",
+    "status": "FINISHED",
+    "ipaSha256": "cd0517e75e681c5f40a8420a53cd7c7b603e1f7fff90c453d3b9ff16dc3da361",
+    "signatureVerified": true,
+    "appAttestEnvironment": "production",
+    "appStoreProvisioning": true,
+    "secureStoreNativeModulePresent": true,
+    "bundleMarkers": {
+      "Enter retailer budget": true,
+      "This budget covers the item, shipping, and tax. Service and processing fees are additional.": true,
+      "Available shipping/tax headroom: ": true,
+      "Enter an explicit retailer budget before approval.": true,
+      "Enter a valid USD budget at least equal to the item subtotal.": true,
+      "Additional shipping or tax could prevent placement.": true,
+      "Acknowledge zero shipping/tax headroom": true,
+      "acknowledgesZeroHeadroom": true,
+      "usd-explicit-budget-v3": true,
+      "fetchit.checkout.pending.": true,
+      "checkout_submission_pending": true,
+      "A previous checkout is unresolved.": true,
+      "Estimated total. Final shipping, taxes, and processing fees may vary.": true
+    },
+    "oldConsentRevisionAbsent": true,
+    "sourceDigestsUnchanged": true,
+    "clientSourceDigests": {
+      "src/app/(app)/checkout-confirmation.tsx": "0eb68ad5edc1cf9b7b868ad8ef0a2c882c69c0be423019a4dcfd928f01905dac",
+      "src/services/orderService.ts": "db6765697be2409cb215eaf6e485606e4c7ae70de7ca977d89bb2fbdb0828c09",
+      "src/services/checkoutSubmission.ts": "3dc08108dbe1f7ee0377d051eaa108951a27d168c69f863d182ef1257454365f",
+      "src/services/checkoutPricing.ts": "9f3517f48922d358743847f529fa6056ff71a65a1db408ca61cebd9e79b6d674"
+    },
+    "nativeDeviceRuntimeVerified": false,
+    "testFlightUploaded": false
+  },
+  "testFlightSelection": {
+    "buildId": "779b3267-5a4d-4466-bfc4-1f634cee6fab",
+    "version": "1.0.0",
+    "buildNumber": "15"
+  },
+  "uploadWorkflowArtifactCheck": "passed including camera purpose",
+  "oldAppleReceiptIgnored": true,
+  "duplicateBuildsCreated": false
+}

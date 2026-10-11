@@ -1,3 +1,9 @@
+async function approveBudget(ui, fallback = '10.00') {
+  const input = ui.container.querySelector('input[aria-label="Retailer spending limit in USD"]');
+  if (input && !input.value) await ui.setBudget(fallback);
+  if (ui.button('Acknowledge zero shipping/tax headroom')) await ui.click('Acknowledge zero shipping/tax headroom');
+  await ui.click('Approve estimate');
+}
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { backend, mount } = require('./harness.cjs');
@@ -7,7 +13,7 @@ test('Actual UI and handler: $100 subtotal sends flat 550-cent Connect margin an
   const app = backend();
   const ui = mount(app.api, 'test-success', { priceCents: '10000', quantity: '1' });
   try {
-    await ui.start();
+    await ui.start(); await ui.setBudget('100.00');
     assert.match(ui.container.textContent, /Service fee: USD 6\.50/);
     assert.equal((ui.container.textContent.match(/Service fee:/g) || []).length, 1);
     assert.doesNotMatch(ui.container.textContent, /FetchIt service fee/);
@@ -16,7 +22,7 @@ test('Actual UI and handler: $100 subtotal sends flat 550-cent Connect margin an
     // Increasing retailer budget for shipping/tax must not increase our margin.
     await ui.setBudget('150.00');
     assert.match(ui.container.textContent, /Service fee: USD 6\.50/);
-    await ui.click('Approve estimate'); await ui.click('Place Order');
+    await approveBudget(ui); await ui.click('Place Order');
     assert.equal(app.calls.submissions.length, 1);
     const sent = app.calls.submissions[0];
     assert.equal(sent.payment.mode, 'connect');

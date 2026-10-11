@@ -1,3 +1,32 @@
+# Explicit retailer budget fix — release, 2026-10-11
+
+Checkout no longer defaults an empty retailer budget to the item subtotal. A valid,
+explicit USD budget at least equal to the subtotal is required before approval.
+The screen shows item subtotal and available shipping/tax headroom and explains:
+“This budget covers the item, shipping, and tax. Service and processing fees are additional.”
+A budget equal to subtotal requires a separate acknowledgment that additional shipping
+or tax could prevent placement. Editing the budget clears acknowledgment and approval.
+
+The backend validates integer cents and the subtotal minimum, binds the budget to
+consent, and requires `acknowledgesZeroHeadroom=true` for equal-subtotal placement.
+Consent revision is `usd-explicit-budget-v3`; old quote approvals do not authorize
+this flow. Approved retailer cents reach Zinc `max_price` unchanged. Margin remains
+$2 + rounded 3.5% of subtotal; combined Service fee, saved address/unit mapping,
+variants, restart recovery, duplicate locking and uncertain-outcome locking remain.
+No shipping/tax amounts, rates or guaranteed totals are inferred.
+
+Validation: 106 offline checkout checks, the separate margin regression, TypeScript
+noEmit and whitespace validation pass. The broader npm suite reports 69 passed,
+one skipped and one unrelated failure: “Google authentication bypass remains disabled”
+in tests/app-attest-hardening.test.js expects a disabled Google button in the unchanged
+login screen. No authentication files were edited for this task.
+
+Release deployment and replacement artifact evidence are recorded in
+[explicit-budget release](explicit-budget-release.md). The existing live order was not read again,
+modified, retried, cancelled or replayed. No provider financial requests were made.
+
+---
+
 # Current replacement fee flow
 
 The approved margin is now 200 cents + round(item subtotal cents × 0.035), calculated only on the server and passed to Zinc as a flat Connect margin. The displayed Service fee includes that margin plus the verified $1 Zinc fee once. Unknown shipping/tax/processing remain unknown. See [replacement verification](replacement-checkout-fulfillment-verification.md). Earlier zero-margin and guaranteed-maximum discussions below are historical and do not describe the replacement release.

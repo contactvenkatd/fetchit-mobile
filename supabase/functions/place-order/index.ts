@@ -72,6 +72,7 @@ function isPlaceOrderRequest(value: unknown): value is PlaceOrderRequest {
     (body.quantity as number) <= 100 &&
     Number.isSafeInteger(body.displayedPriceCents) &&
     (body.displayedPriceCents as number) > 0 &&
+    (body.displayedPriceCents as number) >= (body.itemSubtotalCents as number) &&
     body.currency === "USD" &&
     Number.isSafeInteger(body.unitPriceCents) && (body.unitPriceCents as number) > 0 &&
     typeof body.listingProof === "string" && body.listingProof.length <= 6000 &&

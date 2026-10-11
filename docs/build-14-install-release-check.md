@@ -1,5 +1,11 @@
 # Final install release check — 1.0.0 (14)
 
+> Superseded for new checkout by the [explicit-budget release](explicit-budget-release.md).
+> Production place-order v18 rejects build 14’s v2 consent; build 14 rejects v3
+> quotes. Existing status/recovery paths remain, and pending attempts stay locked.
+> Use replacement build 15 for new checkout after TestFlight availability is verified.
+> The build-14 artifact and Apple evidence below are historical.
+
 **Ready to install build 14.** No confirmed release defect or artifact/backend mismatch remains within the supported scope. No build, upload, configuration or credential change was performed. No live order, hold or charge was created.
 
 ## Artifact, backend and Apple

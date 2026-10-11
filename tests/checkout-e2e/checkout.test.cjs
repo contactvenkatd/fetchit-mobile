@@ -1,3 +1,9 @@
+async function approveBudget(ui, fallback = '10.00') {
+  const input = ui.container.querySelector('input[aria-label="Retailer spending limit in USD"]');
+  if (input && !input.value) await ui.setBudget(fallback);
+  if (ui.button('Acknowledge zero shipping/tax headroom')) await ui.click('Acknowledge zero shipping/tax headroom');
+  await ui.click('Approve estimate');
+}
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { backend, mount, mountHistory, zincId, localOrderId, load, profile, fixtureProof } = require('./harness.cjs');
@@ -6,12 +12,13 @@ test('MOCK: complete DOM checkout → real service/backend → simulated provide
   const app = backend(); const ui = mount(app.api);
   try {
     await ui.start();
+    await ui.setBudget('10.00');
     assert.match(ui.container.textContent, /Estimated total: USD 13.35 \+ shipping, taxes, and processing fees \(amounts unknown\)/);
     assert.match(ui.container.textContent, /Estimated total\. Final shipping, taxes, and processing fees may vary\./);
     assert.doesNotMatch(ui.container.textContent, /Authorize up to|spending ceiling|2\.9%|\$0\.30/);
     assert.equal(ui.button('Place Order').disabled, true);
     ui.button('Place Order').click(); assert.equal(app.calls.submissions.length, 0);
-    await ui.click('Approve estimate');
+    await approveBudget(ui);
     assert.equal(ui.button('Place Order').disabled, false);
     const button = ui.button('Place Order');
     await ui.act(async () => { button.click(); button.click(); }); await ui.flush();
@@ -47,7 +54,7 @@ for (const scenario of ['timeout', 'unknown_response', 'server_error', 'already_
     } });
     const ui = mount(app.api);
     try {
-      await ui.start(); await ui.click('Approve estimate'); await ui.click('Place Order');
+      await ui.start(); await approveBudget(ui); await ui.click('Place Order');
       assert.equal(requests, 1);
       if (scenario === 'decline') {
         assert.match(ui.container.textContent, /Test card declined/);
@@ -99,13 +106,13 @@ for (const variant of ['captured', 'hold', 'wrong_mode', 'wrong_account', 'unrea
 test('MOCK DOM: changing budget invalidates approval until the new estimate and budget is approved', async () => {
   const app = backend(); const ui = mount(app.api);
   try {
-    await ui.start(); await ui.click('Approve estimate');
+    await ui.start(); await approveBudget(ui);
     assert.equal(ui.button('Place Order').disabled, false);
     await ui.setBudget('12.00');
     assert.match(ui.container.textContent, /Retailer budget: USD 12.00/);
     assert.equal(ui.button('Place Order').disabled, true);
     assert.equal(app.calls.submissions.length, 0);
-    await ui.click('Approve estimate'); await ui.click('Place Order');
+    await approveBudget(ui); await ui.click('Place Order');
     assert.equal(app.calls.submissions[0].max_price, 1200);
     assert.equal(app.calls.invocations.find(x => x.approval).approval.retailerBudgetCents, 1200);
   } finally { await ui.close(); }
@@ -117,7 +124,7 @@ test('MOCK DOM/backend/Stripe: verified actual capture independent of estimate r
       connect: { payment_intent_id: 'pi_fixture', connected_account_id: 'acct_fixture', simulated: false } }) });
   const ui = mount(app.api);
   try {
-    await ui.start(); await ui.click('Approve estimate'); await ui.click('Place Order');
+    await ui.start(); await approveBudget(ui); await ui.click('Place Order');
     assert.match(ui.container.textContent, /Actual captured amount: USD 19.50/);
     assert.match(ui.container.textContent, /Payment status: succeeded/);
     assert.doesNotMatch(ui.container.textContent, /Sandbox simulation/);
@@ -156,7 +163,7 @@ for (const outcome of ['accepted', 'timeout', 'malformed']) {
       return Response.json({ id: zincId, status: 'pending', connect: { simulated: true } });
     } });
     let ui = mount(app.api);
-    await ui.start(); await ui.click('Approve estimate'); await ui.click('Place Order'); await ui.close();
+    await ui.start(); await approveBudget(ui); await ui.click('Place Order'); await ui.close();
     ui = mount(app.reloadApi());
     try {
       await ui.start();
@@ -172,7 +179,7 @@ for (const outcome of ['accepted', 'timeout', 'malformed']) {
 test('MOCK mapping: selected URL, quantity, full address, card and retailer budget reach Zinc once', async () => {
   const app = backend(); const ui = mount(app.api, 'test-success', { quantity: '3' });
   try {
-    await ui.start(); await ui.setBudget('35.00'); await ui.click('Approve estimate'); await ui.click('Place Order');
+    await ui.start(); await ui.setBudget('35.00'); await approveBudget(ui); await ui.click('Place Order');
     const sent = app.calls.submissions[0];
     assert.deepEqual(sent.products, [{ url: 'https://zinc.com/shop/products/test-success', quantity: 3 }]);
     assert.deepEqual(sent.shipping_address, { first_name: 'Sandbox', last_name: 'Agent',
@@ -194,7 +201,7 @@ for (const status of ['in_transit', 'delivered', 'order_failed']) {
         job_result: status === 'order_failed' ? { error_details: { code: 'product_out_of_stock' } } : null,
         tracking_numbers: [{ carrier: 'ups', tracking_number: '1ZFIXTURE', status: status === 'order_failed' ? 'delivered' : status, estimated_delivery_date: '2026-10-08' }], connect: { simulated: true } }) });
     let ui = mount(app.api);
-    await ui.start(); await ui.click('Approve estimate'); await ui.click('Place Order');
+    await ui.start(); await approveBudget(ui); await ui.click('Place Order');
     assert.match(ui.container.textContent, new RegExp(`Retailer status: ${status === 'order_failed' ? 'failed' : status}`));
     if (status !== 'order_failed') assert.match(ui.container.textContent, /Tracking: ups 1ZFIXTURE/);
     await ui.close();
@@ -213,7 +220,7 @@ test('MOCK selected variants are disclosed, bound to consent and mapped to Zinc'
   const app = backend(); const ui = mount(app.api, 'test-success', { size: 'Large', color: 'Black' });
   try {
     await ui.start(); assert.match(ui.container.textContent, /Size: Large/); assert.match(ui.container.textContent, /Color: Black/);
-    await ui.click('Approve estimate'); await ui.click('Place Order');
+    await approveBudget(ui); await ui.click('Place Order');
     assert.deepEqual(app.calls.submissions[0].products[0].variant,
       [{ label: 'Size', value: 'Large' }, { label: 'Color', value: 'Black' }]);
   } finally { await ui.close(); }
@@ -283,13 +290,13 @@ test('REAL signed listing rejects fabricated price, currency, URL, signature and
 test('MOCK UI/server: quantity fee uses subtotal once; only combined Service fee is displayed', async () => {
   const app = backend(); const ui = mount(app.api, 'test-success', { quantity: '3' });
   try {
-    await ui.start();
+    await ui.start(); await ui.setBudget('40.00');
     assert.match(ui.container.textContent, /Service fee: USD 4.05/);
     assert.equal((ui.container.textContent.match(/Service fee:/g) ?? []).length, 1);
     assert.doesNotMatch(ui.container.textContent, /FetchIt service fee|Zinc fee:/);
     assert.match(ui.container.textContent, /Estimated total: USD 34.05/);
     assert.equal(ui.button('Place Order').disabled, true);
-    await ui.setBudget('40.00'); await ui.click('Approve estimate'); await ui.click('Place Order');
+    await ui.setBudget('40.00'); await approveBudget(ui); await ui.click('Place Order');
     assert.equal(app.calls.submissions[0].payment.margin.value, 305);
     assert.equal(app.calls.submissions[0].metadata.fetchit_margin_cents, 305);
     assert.equal(app.calls.submissions[0].metadata.zinc_fee_cents, 100);
@@ -309,7 +316,7 @@ test('MOCK server with REAL proof: tampered subtotal/unit price/quantity or cons
     await assert.rejects(app.api.placeOrder({ ...input, ...change, approval: { quoteId: quote.id, mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: 1500, currency: 'USD' } }));
   }
   assert.equal(app.calls.submissions.length, 0);
-  const updated = await app.api.getCheckoutQuote({ ...input, quantity: 2, itemSubtotalCents: 2000 });
+  const updated = await app.api.getCheckoutQuote({ ...input, quantity: 2, itemSubtotalCents: 2000, displayedPriceCents: 2500 });
   assert.equal(updated.fetchitMarginCents, 270); assert.equal(updated.serviceFeeCents, 370);
   assert.notEqual(updated.id, quote.id);
 });
@@ -336,7 +343,7 @@ test('MOCK current live payment failure is never completed in order history', as
       accounts: { retrieve: async () => ({ id: 'acct_fixture' }) },
       paymentIntents: { retrieve: async () => ({ livemode: true, status: 'requires_payment_method', amount_received: 0, currency: 'usd' }) } } });
   let ui = mount(app.api);
-  await ui.start(); await ui.click('Approve estimate'); await ui.click('Place Order'); await ui.close();
+  await ui.start(); await approveBudget(ui); await ui.click('Place Order'); await ui.close();
   ui = mountHistory(app.reloadApi(), [{ id: localOrderId, zincOrderId: zincId, status: 'completed', orderPrice: 10, serviceFee: 2.35 }]);
   try {
     await ui.start(); assert.match(ui.container.textContent, /Retailer status: failed/);
@@ -370,4 +377,110 @@ test('MOCK malformed recovery data and simultaneous claims fail closed', async (
   const attempts = await Promise.allSettled([journal.beginSubmission('first'), journal.beginSubmission('second')]);
   assert.equal(attempts.filter(x => x.status === 'fulfilled').length, 1);
   assert.equal((await journal.getSavedSubmission()).idempotencyKey, 'first');
+});
+
+test('MOCK explicit budget: empty, malformed and below subtotal cannot quote, approve or submit', async () => {
+  const app = backend(); const ui = mount(app.api);
+  try {
+    await ui.start();
+    assert.equal(ui.container.querySelector('input').value, '');
+    assert.match(ui.container.textContent, /Enter an explicit retailer budget/);
+    assert.match(ui.container.textContent, /This budget covers the item, shipping, and tax. Service and processing fees are additional\./);
+    for (const value of ['', ' ', 'abc', '0', '-1', '1.001', '9.99', '9007199254740992']) {
+      await ui.setBudget(value);
+      assert.equal(ui.button('Approve estimate'), undefined);
+      assert.equal(ui.button('Estimate unavailable').disabled, true);
+      ui.button('Estimate unavailable').click(); await ui.flush();
+    }
+    assert.equal(app.calls.invocations.length, 0);
+    assert.equal(app.calls.submissions.length, 0);
+    assert.equal(app.calls.stripeReads, 0);
+  } finally { await ui.close(); }
+});
+
+test('MOCK equal budget: acknowledgment and fresh approval required, max_price stays exact', async () => {
+  const app = backend(); const ui = mount(app.api, 'test-success', { priceCents: '399' });
+  try {
+    await ui.start(); await ui.setBudget('3.99');
+    assert.match(ui.container.textContent, /Item subtotal: USD 3.99/);
+    assert.match(ui.container.textContent, /Available shipping\/tax headroom: USD 0.00/);
+    assert.match(ui.container.textContent, /Additional shipping or tax could prevent placement/);
+    assert.equal(ui.button('Approve estimate').disabled, true);
+    await ui.click('Approve estimate');
+    assert.equal(ui.button('Place Order').disabled, true);
+    await ui.click('Acknowledge zero shipping/tax headroom');
+    await ui.click('Approve estimate');
+    assert.equal(ui.button('Place Order').disabled, false);
+    await ui.setBudget('4.99');
+    assert.match(ui.container.textContent, /Available shipping\/tax headroom: USD 1.00/);
+    assert.equal(ui.button('Place Order').disabled, true);
+    await ui.setBudget('3.99');
+    assert.equal(ui.button('Approve estimate').disabled, true);
+    await ui.click('Acknowledge zero shipping/tax headroom'); await ui.click('Approve estimate');
+    await ui.act(async () => { const b = ui.button('Place Order'); b.click(); b.click(); }); await ui.flush();
+    assert.equal(app.calls.submissions.length, 1);
+    assert.equal(app.calls.submissions[0].max_price, 399);
+    assert.equal(app.calls.submissions[0].payment.margin.value, 214);
+    assert.equal(app.calls.submissions[0].metadata.zinc_fee_cents, 100);
+    assert.equal(app.calls.invocations.find(x => x.approval).approval.acknowledgesZeroHeadroom, true);
+  } finally { await ui.close(); }
+});
+
+test('MOCK server: invalid budgets and forged zero-headroom consent fail before provider submission', async () => {
+  const url = 'https://retailer.example/item';
+  const input = { productUrl: url, quantity: 1, itemSubtotalCents: 399, unitPriceCents: 399,
+    listingProof: await fixtureProof(url, 399), currency: 'USD', displayedPriceCents: 399,
+    productName: 'Fixture', productImage: null, retailer: 'Fixture', idempotencyKey: require('node:crypto').randomUUID() };
+  const app = backend();
+  for (const budget of [undefined, null, '', '399', 0, -1, 398, 399.5, Number.MAX_SAFE_INTEGER + 1]) {
+    await assert.rejects(app.api.getCheckoutQuote({ ...input, displayedPriceCents: budget }));
+    await assert.rejects(app.api.placeOrder({ ...input, displayedPriceCents: budget, approval: { acknowledgesZeroHeadroom: true } }), e => e.code === 'invalid_order');
+  }
+  const quote = await app.api.getCheckoutQuote(input);
+  const approval = { quoteId: quote.id, mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: 399, currency: 'USD' };
+  for (const ack of [undefined, false, 'true', 1]) {
+    await assert.rejects(app.api.placeOrder({ ...input, approval: { ...approval, acknowledgesZeroHeadroom: ack } }), e => e.code === 'checkout_approval_required');
+  }
+  // Altering either the request budget or the consent budget cannot reuse approval.
+  for (const change of [{ displayedPriceCents: 499 }, { approval: { ...approval, retailerBudgetCents: 499, acknowledgesZeroHeadroom: true } }]) {
+    await assert.rejects(app.api.placeOrder({ ...input, approval: { ...approval, acknowledgesZeroHeadroom: true }, ...change }));
+  }
+  assert.equal(app.calls.submissions.length, 0);
+  assert.equal(app.calls.inserts.length, 0);
+  assert.equal(app.calls.stripeReads, 0);
+  await app.api.placeOrder({ ...input, approval: { ...approval, acknowledgesZeroHeadroom: true } });
+  assert.equal(app.calls.submissions.length, 1);
+  assert.equal(app.calls.submissions[0].max_price, 399);
+});
+
+test('MOCK rollout: build 14 rejects new quotes and its cached v2 consent cannot submit', async () => {
+  const ts = require('typescript'); const vm = require('node:vm'); const cp = require('node:child_process');
+  const oldPricingSource = cp.execFileSync('git', ['show', '486f19b:supabase/functions/_shared/checkout-pricing.ts'], { encoding: 'utf8' });
+  const oldServiceSource = cp.execFileSync('git', ['show', '486f19b:src/services/orderService.ts'], { encoding: 'utf8' });
+  function evaluate(source, imports = {}) {
+    const context = { exports: {}, require: name => imports[name], TextEncoder, Date, crypto: require('node:crypto').webcrypto };
+    vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText, context);
+    return context.exports;
+  }
+  const oldPricing = evaluate(oldPricingSource);
+  const app = backend(); const url = 'https://retailer.example/item';
+  const input = { productUrl: url, quantity: 1, itemSubtotalCents: 399, unitPriceCents: 399,
+    listingProof: await fixtureProof(url, 399), currency: 'USD', displayedPriceCents: 399,
+    productName: 'Fixture', productImage: null, retailer: 'Fixture', idempotencyKey: require('node:crypto').randomUUID() };
+  const oldService = evaluate(oldServiceSource, { '@/lib/supabase': { supabase: { functions: { invoke: app.invoke } } }, '@/services/checkoutSubmission': {} });
+  await assert.rejects(oldService.getCheckoutQuote(input), e => e.code === 'checkout_pricing_unavailable');
+  // Exact old pricing implementation produces a different consent digest even
+  // with otherwise identical context. Production re-derives its own context.
+  const context = { userId: 'fixture', productUrl: url, quantity: 1, itemSubtotalCents: 399,
+    retailerBudgetCents: 399, currency: 'USD', profile: {} };
+  const oldQuote = await oldPricing.createCheckoutQuote(context);
+  const pricing = load('supabase/functions/_shared/checkout-pricing.ts');
+  const currentQuote = await pricing.createCheckoutQuote(context);
+  assert.notEqual(oldQuote.id, currentQuote.id);
+  assert.equal(pricing.approvesQuote({ quoteId: oldQuote.id, mode: 'estimate', acceptsVariableFees: true,
+    retailerBudgetCents: 399, currency: 'USD' }, currentQuote), false);
+  const result = await app.invoke('place-order', { body: { ...input, approval: { quoteId: oldQuote.id,
+    mode: 'estimate', acceptsVariableFees: true, retailerBudgetCents: 399, currency: 'USD' } } });
+  assert.equal((await result.error.context.json()).error.code, 'checkout_approval_required');
+  assert.equal(app.calls.submissions.length, 0); assert.equal(app.calls.stripeReads, 0);
 });
