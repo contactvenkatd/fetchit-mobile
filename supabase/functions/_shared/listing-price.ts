@@ -31,6 +31,9 @@ export async function verifyListingPrice(proof: unknown, url: string, secret: st
         !/^[A-Z0-9]{10}$/.test(payload.amazon.asin) || payload.amazon.condition !== 'New' ||
         typeof payload.amazon.sellerId !== 'string' || !payload.amazon.sellerId ||
         typeof payload.amazon.sellerName !== 'string' || !Array.isArray(payload.amazon.variants) ||
+        (payload.amazon.shippingOptions !== undefined && (!Array.isArray(payload.amazon.shippingOptions) || payload.amazon.shippingOptions.length > 20 ||
+          payload.amazon.shippingOptions.some((o: any) => !o || typeof o.name !== 'string' || o.name.length < 1 || o.name.length > 100 || /[\x00-\x1f\x7f]/.test(o.name) ||
+            (o.price !== null && (!Number.isSafeInteger(o.price) || o.price < 0))))) ||
         (payload.amazon.minimumQuantity !== undefined && (!Number.isInteger(payload.amazon.minimumQuantity) || payload.amazon.minimumQuantity < 1 || payload.amazon.minimumQuantity > 100)) ||
         payload.amazon.variants.length > 2 || payload.amazon.variants.some((v: { label?: unknown; value?: unknown }) =>
           !['Size', 'Color'].includes(String(v.label)) || typeof v.value !== 'string' || !v.value))) return null;

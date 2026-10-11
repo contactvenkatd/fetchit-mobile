@@ -12,7 +12,7 @@ test('3.5% rounds once on subtotal; shipping/tax/budget do not inflate fee', asy
   for (const subtotal of [-1, 0, 1.1, NaN, Infinity]) assert.equal(pricing.calculateServiceMargin(subtotal),null);
   const quote = await pricing.createCheckoutQuote(context);
   assert.equal(quote.fetchitMarginCents,114); assert.equal(quote.serviceFeeCents,214);
-  assert.equal(quote.revision,'usd-disclosed-processing-v7');
+  assert.equal(quote.revision,'usd-shipping-review-v8');
   assert.equal(quote.serviceFeeCents,quote.fetchitMarginCents+quote.zincFeeCents); assert.equal(quote.knownCostsCents,613);
   assert.equal(quote.estimatedTotalCents,null); assert.equal(quote.shippingCents,null); assert.equal(quote.taxCents,null);
   assert.equal((await pricing.createCheckoutQuote({...context,retailerBudgetCents:2000})).fetchitMarginCents,114);
@@ -96,7 +96,7 @@ test('unchanged checkout request maps full saved address, selected variant, quan
   assert.ok(declaration);
   const vars={ result:null, orderBody:{productUrl:'https://www.amazon.com/dp/B0C32J6L9F',quantity:2,variants:[{label:'Color',value:'Blue'}],idempotencyKey:'fixture'},
     listing:{amazon:{asin:'B0C32J6L9F',sellerId:'SELLER',sellerName:'Fixture seller'}},
-    quote:{itemSubtotalCents:798,fetchitMarginCents:128,serviceFeeCents:228,zincFeeCents:100,retailerBudgetCents:1500,revision:'usd-disclosed-processing-v7'},
+    quote:{itemSubtotalCents:798,fetchitMarginCents:128,serviceFeeCents:228,zincFeeCents:100,retailerBudgetCents:1500,revision:'usd-shipping-review-v8'},
     name:{firstName:'Fixture',lastName:'User'},profile:{address_line2:'Unit fixture',state:'CA'},addressLine1:'Street fixture',
     city:'City fixture',postalCode:'12345-6789',phone:'5555555555',country:'US',paymentMethod:'pm_fixture',customer:'cus_fixture'};
   vm.runInNewContext(ts.transpileModule(`result = ${declaration.initializer.getText(file)}`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,vars);

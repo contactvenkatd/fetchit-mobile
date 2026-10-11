@@ -201,7 +201,7 @@ export default function CheckoutConfirmationScreen() {
       setOutcomeUnknown(unknown);
       if (!unknown) submissionLocked.current = false;
       if (!unknown && orderError instanceof PlaceOrderError &&
-          ['checkout_approval_required', 'max_price_exceeded'].includes(orderError.code)) {
+          ['checkout_approval_required', 'insufficient_retailer_budget', 'max_price_exceeded'].includes(orderError.code)) {
         setApprovedQuoteId(null);
         setQuoteResult(null);
         setQuoteRefresh(value => value + 1);
@@ -291,8 +291,9 @@ export default function CheckoutConfirmationScreen() {
 
         <View style={styles.detailCard}>
           <Text style={styles.sectionTitle}>Cost review</Text>
-          {costLines.map(line => <Text key={line.label} style={styles.detailText}>{line.label}: {line.cents === null ? 'Unknown' : formatKnownPrice(line.cents, pricing.currency)}</Text>)}
+          {costLines.map(line => <Text key={line.label} style={styles.detailText}>{line.label}: {line.cents === null ? 'Unknown' : `${line.estimate ? 'Estimate ' : ''}${formatKnownPrice(line.cents, pricing.currency)}${line.estimate ? ' · quoted offer; destination unconfirmed' : ''}`}</Text>)}
           <Text style={styles.detailPrimary}>Total: {displayedTotal === null ? 'Unknown — shipping, tax and processing are not yet confirmed' : formatKnownPrice(displayedTotal, pricing.currency)}</Text>
+          {quote?.shippingOptions.length ? <Text style={styles.detailText}>Quoted seller shipping options: {quote.shippingOptions.map(o => `${o.name}: ${o.price === null ? 'Unknown' : formatKnownPrice(o.price, 'USD')}`).join('; ')}. These are not destination-specific and do not select a seller or shipping service. Shipping for multiple items is unconfirmed.</Text> : null}
           <Text style={styles.detailText}>Product price is an estimate. FetchIt fee is $2 + 3.5% of the item subtotal, rounded once to cents. This includes the provider’s $1 fee.</Text>
           <Text style={styles.warning}>Processing fee is charged separately by the payment provider. Its applicable rate and amount are unknown before submission; no example rate or estimated total is guaranteed.</Text>
           <Text style={styles.detailText}>Retailer spending limit in USD, including shipping and taxes:</Text>
@@ -302,6 +303,7 @@ export default function CheckoutConfirmationScreen() {
             editable={!submitting && !outcomeUnknown && !submissionLocked.current}
             onChangeText={value => { setApprovedQuoteId(null); setZeroHeadroomAcknowledged(false); setBudgetInput(value); }} />
           <Text style={styles.detailText}>This budget caps the retailer’s item, shipping, and tax costs. The card hold also includes the FetchIt fee and provider-determined processing costs, so it exceeds this retailer budget.</Text>
+          {quote && !quote.canSubmit ? <Text style={styles.warning}>Retailer budget is below the quoted known costs of USD {formatUsdCents(quote.knownRetailerCostsCents)}. Increase it and review again; tax may add more.</Text> : null}
           <Text style={styles.detailText}>Available shipping/tax headroom: {budgetValid ? formatKnownPrice(retailerBudgetCents! - totalCents, 'USD') : 'Unavailable until a valid budget is entered'}</Text>
           {!budgetValid ? <Text style={styles.warning}>{budgetInput === '' ? 'Enter an explicit retailer budget before approval.' : 'Enter a valid USD budget at least equal to the item subtotal.'}</Text> : null}
           {budgetValid && retailerBudgetCents === totalCents ? <>

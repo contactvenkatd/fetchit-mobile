@@ -328,9 +328,9 @@ for (const code of ['checkout_approval_required', 'max_price_exceeded']) {
 }
 
 test('client rejects malformed, expired, wrong-currency and wrong-budget server quotes', async () => {
-  const valid = { id: 'a'.repeat(64), mode: 'estimate', revision: 'usd-disclosed-processing-v7', canSubmit: true, paymentContract: 'disclosed_variable_processing',
+  const valid = { id: 'a'.repeat(64), mode: 'estimate', revision: 'usd-shipping-review-v8', canSubmit: true, paymentContract: 'disclosed_variable_processing',
     itemSubtotalCents: 1000, knownCostsCents: 1235, fetchitMarginCents: 135, serviceFeeCents: 235, retailerBudgetCents: 1000, currency: 'USD',
-    zincFeeCents: 100, shippingCents: null, taxCents: null,
+    zincFeeCents: 100, shippingCents: null, shippingScope: 'unknown', shippingOptions: [], knownRetailerCostsCents: 1000, taxCents: null,
     paymentFeeCents: null, estimatedTotalCents: null, expiresAt: Date.now() + 100000 };
   const input = { displayedPriceCents: 1000, itemSubtotalCents: 1000, currency: 'USD' };
   for (const change of [{ id: 'invalid' }, { mode: 'maximum' }, { knownCostsCents: 999 },

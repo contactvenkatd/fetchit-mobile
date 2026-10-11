@@ -65,5 +65,5 @@ const sandboxAuthorization=(budget,margin)=>Number((BigInt(budget+margin+130)*10
   productionProcessingRateVerified:false,productionProcessingDisplayed:'Unknown',productionTotalDisplayed:'Unknown',
   authorizationChecksPassed:true,captureAndSettlementVerified:observations.every(o=>o.finalChargeCents!==null && o.transferCents!==null),
   liveFinancialOperations:0,separateStripeOperations:0,observations};
- fs.writeFileSync('docs/disclosed-processing-sandbox-evidence.json',JSON.stringify(result,null,2)+'\n');
+ fs.writeFileSync('docs/shipping-audit-sandbox-evidence.json',JSON.stringify(result,null,2)+'\n');
 })().catch(e=>{console.log(JSON.stringify({outcome:'failed',code:e.code||e.name,location:e.stack?.split('\n').find(l=>l.includes('disclosed-processing-sandbox.cjs:'))?.trim()}));process.exitCode=1;});

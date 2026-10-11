@@ -1,16 +1,17 @@
-# Disclosed processing checkout (v7)
+# Shipping review checkout (v8)
 
-`npm run test:checkout` runs the complete affected offline suite (117 tests).
+`npm run test:checkout` runs the complete affected offline suite (129 tests).
 Five cost rows are required: Product price, Shipping, Tax, FetchIt fee, Processing
 fee, then Total. FetchIt fee is $2 + 3.5% of quoted product subtotal rounded once;
 the flat margin sent to Zinc is exactly $1 less. No extra transfer is made.
 
-Shipping, tax, processing and Total remain unknown before the provider calculates
-them. Production does not import the sandbox's inferred example fee schedule.
+Shipping from a complete single-item offer is an explicitly non-destination estimate;
+missing amounts and multi-item shipping stay unknown. Known quoted shipping raises
+the retailer budget floor. Tax, processing and Total remain unknown. Production does not import the sandbox's inferred example fee schedule.
 Approval explicitly consents to additional provider-determined processing costs;
 it is not a numeric customer-total ceiling. The retailer budget still caps item,
 shipping and tax. Changed quote/context/expiry requires fresh approval. Old
-four-line consent cannot submit. Durable pending locks survive timeout/restart.
+v7/four-line consent cannot submit. Durable pending locks survive timeout/restart.
 
 `npm run test:checkout:sandbox` uses only a `zn_test_` key and test products. It runs
 the actual UI/service/handler through real Zinc sandbox acceptance, duplicate key

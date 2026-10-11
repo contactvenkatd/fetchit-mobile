@@ -1,0 +1,71 @@
+{
+  "observedAt": "2026-10-11T20:55:59.428Z",
+  "testKeyOnly": true,
+  "liveFinancialOperations": 0,
+  "observations": [
+    {
+      "asin": "B0C32J6L9F",
+      "http": 200,
+      "status": "completed",
+      "currency": null,
+      "offerCount": 1,
+      "destinationParameterSent": false,
+      "scope": "real Zinc data API using test key; not a destination quote",
+      "offers": [
+        {
+          "priceCents": 399,
+          "currency": "USD",
+          "currencyCode": null,
+          "condition": "New",
+          "available": true,
+          "primeOnly": null,
+          "shippingOptions": [
+            {
+              "name": null,
+              "priceCents": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "asin": "B0CB75WJZP",
+      "http": 200,
+      "status": "completed",
+      "currency": null,
+      "offerCount": 2,
+      "destinationParameterSent": false,
+      "scope": "real Zinc data API using test key; not a destination quote",
+      "offers": [
+        {
+          "priceCents": 17500,
+          "currency": "USD",
+          "currencyCode": null,
+          "condition": "New",
+          "available": true,
+          "primeOnly": null,
+          "shippingOptions": [
+            {
+              "name": null,
+              "priceCents": 0
+            }
+          ]
+        },
+        {
+          "priceCents": 16459,
+          "currency": "USD",
+          "currencyCode": null,
+          "condition": "Used - Very Good",
+          "available": true,
+          "primeOnly": null,
+          "shippingOptions": [
+            {
+              "name": null,
+              "priceCents": 0
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

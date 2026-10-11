@@ -3,8 +3,9 @@ import { beginSubmission, acceptSubmission, releaseRejectedSubmission } from '@/
 export { getSavedSubmission, startNewPurchase } from '@/services/checkoutSubmission';
 
 export interface CheckoutQuote {
-  id: string; mode: 'estimate'; paymentContract: 'disclosed_variable_processing'; canSubmit: true; revision: string; itemSubtotalCents: number;
-  knownCostsCents: number; shippingCents: null; taxCents: null; zincFeeCents: 100;
+  id: string; mode: 'estimate'; paymentContract: 'disclosed_variable_processing'; canSubmit: boolean; revision: string; itemSubtotalCents: number;
+  knownCostsCents: number; shippingCents: number | null; shippingScope: 'offer_estimate_not_destination_specific' | 'unknown';
+  shippingOptions: { name: string; price: number | null }[]; knownRetailerCostsCents: number; taxCents: null; zincFeeCents: 100;
   paymentFeeCents: null; fetchitMarginCents: number; serviceFeeCents: number; estimatedTotalCents: null;
   retailerBudgetCents: number; currency: 'USD'; expiresAt: number;
 }
@@ -51,7 +52,7 @@ export class PlaceOrderError extends Error {
       'profile_lookup_failed', 'missing_profile', 'missing_payment_method',
       'incomplete_shipping_address', 'missing_phone_number', 'checkout_approval_required',
       'payment_environment_mismatch', 'payment_verification_unavailable',
-      'checkout_payment_contract_unavailable', 'max_price_exceeded', 'card_declined', 'insufficient_funds',
+      'checkout_payment_contract_unavailable', 'insufficient_retailer_budget', 'max_price_exceeded', 'card_declined', 'insufficient_funds',
       'invalid_shipping_address', 'url_unreachable',
     ].includes(code);
   }
@@ -131,12 +132,21 @@ export async function getCheckoutQuote(input: PlaceOrderInput): Promise<Checkout
   if (error) throw await functionError(error);
   const quote = data?.quote as CheckoutQuote | undefined;
   if (!quote || !/^[a-f0-9]{64}$/.test(quote.id) || quote.currency !== 'USD' ||
-      quote.mode !== 'estimate' || quote.canSubmit !== true || quote.paymentContract !== 'disclosed_variable_processing' || quote.revision !== 'usd-disclosed-processing-v7' ||
+      quote.mode !== 'estimate' || typeof quote.canSubmit !== 'boolean' || quote.paymentContract !== 'disclosed_variable_processing' || quote.revision !== 'usd-shipping-review-v8' ||
       input.currency !== 'USD' || quote.itemSubtotalCents !== input.itemSubtotalCents ||
-      !Number.isSafeInteger(quote.knownCostsCents) || quote.knownCostsCents !== input.itemSubtotalCents + quote.serviceFeeCents ||
+      !Number.isSafeInteger(quote.knownCostsCents) || quote.knownCostsCents !== quote.knownRetailerCostsCents + quote.serviceFeeCents ||
       quote.zincFeeCents !== 100 || (!Number.isSafeInteger(quote.fetchitMarginCents) || quote.fetchitMarginCents < 100) ||
       !Number.isSafeInteger(quote.serviceFeeCents) || quote.serviceFeeCents !== quote.fetchitMarginCents + quote.zincFeeCents ||
-      quote.shippingCents !== null || quote.taxCents !== null || quote.paymentFeeCents !== null ||
+      !Array.isArray(quote.shippingOptions) || quote.shippingOptions.length > 20 || quote.shippingOptions.some(o => !o || typeof o.name !== 'string' || !o.name || o.name.length > 100 ||
+        (o.price !== null && (!Number.isSafeInteger(o.price) || o.price < 0))) ||
+      (quote.shippingCents !== null && (!Number.isSafeInteger(quote.shippingCents) || quote.shippingCents < 0 || input.quantity !== 1 ||
+        quote.shippingOptions.length === 0 || quote.shippingOptions.some(o => o.price === null) ||
+        quote.shippingCents !== Math.min(...quote.shippingOptions.map(o => o.price!)))) ||
+      quote.shippingCents !== (input.quantity === 1 && quote.shippingOptions.length > 0 && quote.shippingOptions.every(o => o.price !== null) ? Math.min(...quote.shippingOptions.map(o => o.price!)) : null) ||
+      quote.shippingScope !== (quote.shippingCents === null ? 'unknown' : 'offer_estimate_not_destination_specific') ||
+      !Number.isSafeInteger(quote.knownRetailerCostsCents) || quote.knownRetailerCostsCents !== (quote.shippingCents === null ? input.itemSubtotalCents : input.itemSubtotalCents + quote.shippingCents) ||
+      quote.canSubmit !== (quote.retailerBudgetCents >= quote.knownRetailerCostsCents) ||
+      quote.taxCents !== null || quote.paymentFeeCents !== null ||
       quote.estimatedTotalCents !== null ||
       quote.retailerBudgetCents !== input.displayedPriceCents ||
       !Number.isSafeInteger(quote.retailerBudgetCents) || quote.retailerBudgetCents < quote.itemSubtotalCents ||

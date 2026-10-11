@@ -276,6 +276,8 @@ Deno.serve(async (req) => {
   if (!quote) return failure('checkout_pricing_unavailable',
     'The checkout estimate cannot be verified. No order was submitted.', 503);
   if (orderBody.action === 'quote') return json({ quote });
+  if (quote.retailerBudgetCents < quote.knownRetailerCostsCents) return failure('insufficient_retailer_budget',
+    'Your retailer budget is below the quoted product and known shipping/tax costs. Review a higher budget before approving. No order was submitted.', 409);
   if (!approvesQuote(orderBody.approval, quote)) return failure('checkout_approval_required',
     'The checkout estimate or details changed. Review and approve the updated estimate before placing your order.', 409);
 
@@ -392,6 +394,7 @@ Deno.serve(async (req) => {
       category: null,
       checkout_evidence: { revision: quote.revision, itemSubtotalCents: quote.itemSubtotalCents,
         fetchitFeeCents: quote.serviceFeeCents, fetchitMarginCents: quote.fetchitMarginCents,
+        shippingScope: quote.shippingScope, knownRetailerCostsCents: quote.knownRetailerCostsCents,
         zincFeeCents: quote.zincFeeCents, paymentFeeCents: quote.paymentFeeCents, shippingCents: quote.shippingCents, taxCents: quote.taxCents,
         retailerBudgetCents: quote.retailerBudgetCents, approvedQuoteId: quote.id,
         paymentContract: quote.paymentContract, acceptsProcessingFee: true, acceptsVariableFees: true,

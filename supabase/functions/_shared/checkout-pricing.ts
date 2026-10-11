@@ -1,16 +1,19 @@
 // Zinc Connect documents its standard $1 fee independently of wallet pricing.
 // Provider-determined processing is disclosed and separately consented to.
 // Production processing terms are not verified: unknown components stay null.
-export const ESTIMATE_REVISION = 'usd-disclosed-processing-v7';
+export const ESTIMATE_REVISION = 'usd-shipping-review-v8';
 export interface CheckoutQuote {
   id: string;
   mode: 'estimate';
   paymentContract: 'disclosed_variable_processing';
-  canSubmit: true;
+  canSubmit: boolean;
   revision: string;
   itemSubtotalCents: number;
   knownCostsCents: number;
-  shippingCents: null;
+  shippingCents: number | null;
+  shippingScope: 'offer_estimate_not_destination_specific' | 'unknown';
+  shippingOptions: { name: string; price: number | null }[];
+  knownRetailerCostsCents: number;
   taxCents: null;
   zincFeeCents: 100;
   paymentFeeCents: null;
@@ -39,22 +42,43 @@ export function calculateServiceMargin(itemSubtotalCents: number): number | null
   const value = 100n + (BigInt(itemSubtotalCents) * 35n + 500n) / 1000n;
   return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : null;
 }
+// Only provider-signed offer evidence enters this helper. Offer methods are not
+// destination quotes or seller/service selections. Quantity scaling is undocumented.
+export function offerShipping(evidence: unknown, quantity: number) {
+  const value = evidence as { shippingOptions?: { name: string; price: number | null }[] } | null;
+  const options = Array.isArray(value?.shippingOptions) ? value.shippingOptions : [];
+  const known = quantity === 1 && options.length > 0 && options.every(o =>
+    Number.isSafeInteger(o.price) && o.price! >= 0);
+  return { options, cents: known ? Math.min(...options.map(o => o.price!)) : null };
+}
+// Unknown components contribute no KNOWN amount, but remain null in the quote;
+// this lower bound is never presented as the complete retailer/customer total.
+export function knownRetailerCosts(subtotal: number, shipping: number | null, tax: number | null): number | null {
+  if (![subtotal, shipping, tax].every(v => v === null || Number.isSafeInteger(v) && v >= 0)) return null;
+  let sum = subtotal;
+  if (shipping !== null) sum += shipping;
+  if (tax !== null) sum += tax;
+  return Number.isSafeInteger(sum) ? sum : null;
+}
 export async function createCheckoutQuote(
   context: CheckoutContext,
   now = Date.now(),
 ): Promise<CheckoutQuote | null> {
   const margin = calculateServiceMargin(context.itemSubtotalCents);
   const combinedFee = margin === null ? null : margin + 100;
-  if (margin === null || combinedFee === null || !Number.isSafeInteger(combinedFee) || !Number.isSafeInteger(context.itemSubtotalCents + combinedFee) || context.currency !== 'USD' ||
+  const shipping = offerShipping(context.listingEvidence, context.quantity);
+  const retailerKnown = knownRetailerCosts(context.itemSubtotalCents, shipping.cents, null);
+  if (retailerKnown === null || margin === null || combinedFee === null || !Number.isSafeInteger(retailerKnown + combinedFee) || !Number.isSafeInteger(context.retailerBudgetCents + combinedFee) || !Number.isSafeInteger(combinedFee) || !Number.isSafeInteger(context.itemSubtotalCents + combinedFee) || context.currency !== 'USD' ||
       !Number.isSafeInteger(context.itemSubtotalCents) || context.itemSubtotalCents <= 0 ||
       !Number.isSafeInteger(context.itemSubtotalCents + 100) ||
       !Number.isSafeInteger(context.retailerBudgetCents) || context.retailerBudgetCents < context.itemSubtotalCents ||
       !Number.isInteger(context.quantity) || context.quantity < 1 || context.quantity > 100) return null;
   const expiresAt = (Math.floor(now / 300000) + 1) * 300000;
   const terms = {
-    mode: 'estimate' as const, paymentContract: 'disclosed_variable_processing' as const, canSubmit: true as const, revision: ESTIMATE_REVISION,
-    itemSubtotalCents: context.itemSubtotalCents, knownCostsCents: context.itemSubtotalCents + combinedFee,
-    shippingCents: null, taxCents: null, zincFeeCents: 100 as const, paymentFeeCents: null,
+    mode: 'estimate' as const, paymentContract: 'disclosed_variable_processing' as const, canSubmit: context.retailerBudgetCents >= retailerKnown, revision: ESTIMATE_REVISION,
+    itemSubtotalCents: context.itemSubtotalCents, knownCostsCents: retailerKnown + combinedFee, knownRetailerCostsCents: retailerKnown,
+    shippingCents: shipping.cents, shippingOptions: shipping.options,
+    shippingScope: shipping.cents === null ? 'unknown' as const : 'offer_estimate_not_destination_specific' as const, taxCents: null, zincFeeCents: 100 as const, paymentFeeCents: null,
     fetchitMarginCents: margin, serviceFeeCents: combinedFee, estimatedTotalCents: null,
     retailerBudgetCents: context.retailerBudgetCents, currency: 'USD' as const, expiresAt,
   };

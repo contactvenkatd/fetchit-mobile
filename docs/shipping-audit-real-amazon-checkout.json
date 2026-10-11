@@ -1,0 +1,18 @@
+{
+  "observedAt": "2026-10-11T20:57:10.913Z",
+  "scope": "real search/details/offers and Zinc sandbox order; native/auth/DB/Stripe reference reads mocked",
+  "asin": "B0CB75WJZP",
+  "quotedShippingOptions": [
+    {
+      "name": "Unspecified service",
+      "price": 0
+    }
+  ],
+  "destinationSpecific": false,
+  "completed": true,
+  "savedAddressMappingVerified": true,
+  "simulatedDeliveryVerified": true,
+  "physicalShipmentVerified": false,
+  "subsequentHistoryFailure": "injected mock; not provider failure",
+  "productionProcessingRateVerified": false
+}

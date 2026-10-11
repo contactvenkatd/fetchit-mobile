@@ -48,18 +48,18 @@ export function estimateApprovalText(_knownCostsCents: number): string {
   return 'Total: Unknown — shipping, tax and processing are not yet confirmed.';
 }
 
-export function checkoutCostLines(quote: { itemSubtotalCents: number; shippingCents: number | null; taxCents: number | null; serviceFeeCents: number; paymentFeeCents: number | null } | null, itemSubtotalCents: number | null) {
+export function checkoutCostLines(quote: { itemSubtotalCents: number; shippingCents: number | null; shippingScope?: string; taxCents: number | null; serviceFeeCents: number; paymentFeeCents: number | null } | null, itemSubtotalCents: number | null) {
   return [
     { label: 'Product price', cents: quote?.itemSubtotalCents ?? itemSubtotalCents },
-    { label: 'Shipping', cents: quote?.shippingCents ?? null },
+    { label: 'Shipping', cents: quote?.shippingCents ?? null, estimate: quote?.shippingScope === 'offer_estimate_not_destination_specific' },
     { label: 'Tax', cents: quote?.taxCents ?? null },
     { label: 'FetchIt fee', cents: quote?.serviceFeeCents ?? null },
     { label: 'Processing fee', cents: quote?.paymentFeeCents ?? null },
   ];
 }
 
-export function checkoutTotalCents(lines: { cents: number | null }[]): number | null {
-  if (lines.length !== 5 || lines.some(line => line.cents === null || !Number.isSafeInteger(line.cents) || line.cents < 0)) return null;
+export function checkoutTotalCents(lines: { cents: number | null; estimate?: boolean }[]): number | null {
+  if (lines.length !== 5 || lines.some(line => line.estimate === true || line.cents === null || !Number.isSafeInteger(line.cents) || line.cents < 0)) return null;
   const total = lines.reduce((sum, line) => sum + line.cents!, 0);
   return Number.isSafeInteger(total) ? total : null;
 }

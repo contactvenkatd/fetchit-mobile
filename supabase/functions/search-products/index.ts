@@ -251,8 +251,8 @@ Deno.serve(async (req) => {
           minimumQuantity: offer.minimum_quantity ?? 1,
           marketplaceFulfilled: typeof offer.marketplace_fulfilled === 'boolean' ? offer.marketplace_fulfilled : null,
           shippingOptions: Array.isArray(offer.shipping_options) ? offer.shipping_options.slice(0, 20)
-            .filter((option: any) => typeof option?.name === 'string' && /^[a-zA-Z -]{1,60}$/.test(option.name))
-            .map((option: any) => ({ name: option.name, price: Number.isSafeInteger(option.price) && option.price >= 0 ? option.price : null })) : [] };
+            .map((option: any) => ({ name: typeof option?.name === 'string' ? option.name.replace(/[\x00-\x1f\x7f]/g, '').trim().slice(0, 100) || 'Unspecified service' : 'Unspecified service',
+              price: Number.isSafeInteger(option?.price) && option.price >= 0 ? option.price : null })) : [] };
         return {
           title: `${details.title ?? row.title} · New · Quoted seller: ${offer.seller.name}; seller may vary`,
           price: offer.price, currency: offer.currency, image: details.main_image ?? row.image ?? null,

@@ -1,5 +1,7 @@
 # Disclosed processing checkout — 2026-10-11
 
+Historical build 16 release. Superseded by [shipping audit](final-checkout-shipping-audit.md) and shipping-aware v8 checkout.
+
 Checkout now has Product price, Shipping, Tax, FetchIt fee and Processing fee,
 with Total beneath. FetchIt fee is $2 + 3.5% of quoted item subtotal, rounded once
 server-side with integer arithmetic. Zinc receives only $1 + 3.5% as a flat margin;

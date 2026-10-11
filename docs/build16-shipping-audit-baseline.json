@@ -1,0 +1,36 @@
+{
+  "build16SignatureVerified": true,
+  "build16IpaUnchanged": true,
+  "build16ConsentRevision": "usd-disclosed-processing-v7",
+  "changedSourceFiles": [
+    "src/app/(app)/checkout-confirmation.tsx",
+    "src/services/checkoutPricing.ts",
+    "src/services/orderService.ts",
+    "supabase/functions/place-order/index.ts",
+    "supabase/functions/_shared/checkout-pricing.ts",
+    "supabase/functions/_shared/listing-price.ts"
+  ],
+  "build16OutdatedForClientFix": true,
+  "preFixDeployedFunctions": [
+    {
+      "slug": "place-order",
+      "version": 21,
+      "originalBuild16SourceMatches": {
+        "supabase/functions/place-order/index.ts": true,
+        "supabase/functions/_shared/checkout-pricing.ts": true,
+        "supabase/functions/_shared/order-status.ts": true,
+        "supabase/functions/_shared/listing-price.ts": true,
+        "supabase/functions/_shared/stripe-backend.ts": true
+      }
+    },
+    {
+      "slug": "search-products",
+      "version": 20,
+      "originalBuild16SourceMatches": {
+        "supabase/functions/_shared/listing-price.ts": true,
+        "supabase/functions/search-products/index.ts": true
+      }
+    }
+  ],
+  "liveFinancialOperations": 0
+}

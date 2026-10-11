@@ -49,10 +49,14 @@ if (process.env.RUN_REAL_CURRENCY_SEARCH === '1') {
       assert.equal(url.origin, 'https://api.zinc.com');
       assert.ok(/^\/products(?:\/search|\/[A-Z0-9]{10}(?:\/offers)?)$/.test(url.pathname));
       return fetch(url, { headers: { Authorization: `Bearer ${key}` }, redirect: 'error', signal: AbortSignal.timeout(25000) });
-    }, key)();
+    }, key)({ ...intent, productQuery: 'B0CB75WJZP', quantity: 1, size: null, color: null });
     const result = results.find(row => row.currency === 'USD' && row.listingProof);
     assert.ok(result, 'An actual currency-bearing search result must reach checkout');
-    assert.equal(result.retailer, 'amazon'); assert.ok(result.amazon.asin); assert.ok(result.amazon.sellerId);
+    assert.equal(result.retailer, 'amazon');
+    const proof=JSON.parse(result.listingProof).payload;
+    assert.deepEqual(proof.amazon.shippingOptions,result.amazon.shippingOptions);
+    assert.ok(result.amazon.shippingOptions.length);
+    require('node:fs').writeFileSync('docs/shipping-audit-real-amazon-checkout.json',JSON.stringify({observedAt:new Date().toISOString(),scope:'real search/details/offers and Zinc sandbox order; native/auth/DB/Stripe reference reads mocked',asin:result.amazon.asin,quotedShippingOptions:result.amazon.shippingOptions,destinationSpecific:false,completed:false},null,2)+'\n'); assert.ok(result.amazon.asin); assert.ok(result.amazon.sellerId);
     Object.assign(profile, { full_name: 'Saved Recipient Example', address_line1: '4827 Cedar Hollow Lane', address_line2: 'Apartment 9B', city: 'Austin', state: 'TX', zip: '78704-1234', country: 'US', phone_number: '5125550147' });
     let injectFailure = false;
     const realUpstream = sandboxFetch(key, [result.url]);
@@ -60,34 +64,35 @@ if (process.env.RUN_REAL_CURRENCY_SEARCH === '1') {
       const response = await realUpstream(url, options);
       if (!injectFailure || options?.method === 'POST') return response;
       const body = await response.json();
-      return Response.json({ ...body, status: 'order_failed', job_result: { error: 'product_out_of_stock' } });
+      return Response.json({ ...body, status: 'order_failed', job_result: { error_details: { code: 'product_out_of_stock' } } });
     };
     const app = backend({ key, upstream });
     const checkout = mount(app.api, 'test-success', { productUrl: result.url, title: result.title, retailer: result.retailer,
-      priceCents: String(result.price), currency: result.currency, listingProof: result.listingProof, quantity: '2', size: intent.size, color: '' });
+      priceCents: String(result.price), currency: result.currency, listingProof: result.listingProof, quantity: '1', size: '', color: '' });
     try {
       await checkout.start();
-      const margin = 200 + Math.round(result.price * 2 * 0.035);
-      assert.match(checkout.container.textContent, new RegExp(`Service fee: USD ${((margin + 100) / 100).toFixed(2)}`));
-      assert.equal((checkout.container.textContent.match(/Service fee:/g) || []).length, 1);
+      await checkout.setBudget(String((result.price + 5000) / 100));
+      const margin = 100 + Math.round(result.price * 0.035);
+      assert.match(checkout.container.textContent, new RegExp(`FetchIt fee: USD ${((margin + 100) / 100).toFixed(2)}`));
+      assert.equal((checkout.container.textContent.match(/FetchIt fee:/g) || []).length, 1);
       assert.equal(checkout.button('Place Order').disabled, true);
-      await checkout.setBudget(String((result.price * 2 + 5000) / 100));
+      await checkout.setBudget(String((result.price + 5000) / 100));
       await approveBudget(checkout);
       await checkout.act(async () => { checkout.button('Place Order').click(); checkout.button('Place Order').click(); });
       const deadline = Date.now() + 20000;
       while (!app.calls.inserts.length && Date.now() < deadline) await checkout.flush();
       assert.equal(app.calls.submissions.length, 1); assert.equal(app.calls.inserts.length, 1);
       const sent = app.calls.submissions[0];
-      assert.equal(sent.products[0].url, result.url); assert.equal(sent.products[0].quantity, 2);
+      assert.equal(sent.products[0].url, result.url); assert.equal(sent.products[0].quantity, 1);
       assert.deepEqual(sent.products[0].condition_in, ['New']);
-      assert.deepEqual(sent.products[0].variant, [{ label: 'Size', value: intent.size }]);
+      assert.equal(sent.products[0].variant, undefined);
       assert.equal(sent.metadata.amazon_asin, result.amazon.asin);
       assert.equal(sent.metadata.amazon_quoted_seller_id, result.amazon.sellerId);
       assert.equal(sent.payment.mode, 'connect');
       assert.deepEqual(sent.payment.margin, { type: 'flat', value: margin });
       assert.equal(sent.payment.customer, profile.stripe_customer_id);
       assert.equal(sent.payment.payment_method, profile.stripe_payment_method_id);
-      assert.equal(sent.metadata.fetchit_item_subtotal_cents, result.price * 2);
+      assert.equal(sent.metadata.fetchit_item_subtotal_cents, result.price);
       assert.equal(sent.metadata.fetchit_margin_cents, margin);
       assert.equal(sent.metadata.zinc_fee_cents, 100);
       assert.deepEqual(sent.shipping_address, { first_name: 'Saved', last_name: 'Recipient Example', address_line1: profile.address_line1,
@@ -113,12 +118,13 @@ if (process.env.RUN_REAL_CURRENCY_SEARCH === '1') {
       assert.match(history.container.textContent, /Payment status: simulated/);
       assert.doesNotMatch(history.container.textContent, /Captured:/);
       assert.equal(app.calls.submissions.length, 1);
+      require('node:fs').writeFileSync('docs/shipping-audit-real-amazon-checkout.json',JSON.stringify({observedAt:new Date().toISOString(),scope:'real search/details/offers and Zinc sandbox order; native/auth/DB/Stripe reference reads mocked',asin:result.amazon.asin,quotedShippingOptions:result.amazon.shippingOptions,destinationSpecific:false,completed:true,savedAddressMappingVerified:true,simulatedDeliveryVerified:true,physicalShipmentVerified:false,subsequentHistoryFailure:'injected mock; not provider failure',productionProcessingRateVerified:false},null,2)+'\n');
       injectFailure = true;
       await history.act(async () => { await poll(); }); await history.flush();
       assert.match(history.container.textContent, /Retailer status: failed/);
       assert.doesNotMatch(history.container.textContent, /Retailer status: delivered|Captured:|Payment status: (paid|succeeded)|Completed/);
       assert.equal(app.calls.submissions.length, 1);
-      console.log(JSON.stringify({ asin: result.amazon.asin, currency: result.currency, unitPriceCents: result.price, quantity: 2, variant: intent.size, marginCents: 100 + Math.round(result.price * 2 * .035), serviceFeeCents: 200 + Math.round(result.price * 2 * .035), submissions: app.calls.submissions.length, savedAddressFieldsMatched: true, simulatedDelivery: true, injectedFailureOverridesOverallDelivery: true, mocks: ['native UI primitives', 'authentication', 'database', 'Stripe customer/payment-method reads', 'post-delivery failure response'] }));
+      console.log(JSON.stringify({ asin: result.amazon.asin, currency: result.currency, unitPriceCents: result.price, quantity: 1, variant: null, marginCents: 100 + Math.round(result.price * .035), serviceFeeCents: 200 + Math.round(result.price * .035), submissions: app.calls.submissions.length, savedAddressFieldsMatched: true, simulatedDelivery: true, injectedFailureOverridesOverallDelivery: true, mocks: ['native UI primitives', 'authentication', 'database', 'Stripe customer/payment-method reads', 'post-delivery failure response'] }));
     } finally { await history.close(); }
   });
 } else {

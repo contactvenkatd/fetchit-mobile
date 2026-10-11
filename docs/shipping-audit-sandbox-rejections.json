@@ -1,0 +1,21 @@
+{
+  "observedAt": "2026-10-11T20:55:11.700Z",
+  "observations": [
+    {
+      "scenario": "test-invalid-address",
+      "providerRequests": 1,
+      "acceptedOrders": 0,
+      "realZincSandbox": true,
+      "authDatabaseStripeRefsMocked": true
+    },
+    {
+      "scenario": "test-insufficient-funds",
+      "providerRequests": 1,
+      "acceptedOrders": 0,
+      "realZincSandbox": true,
+      "authDatabaseStripeRefsMocked": true
+    }
+  ],
+  "liveFinancialOperations": 0,
+  "stripeCardDeclineVerified": false
+}
