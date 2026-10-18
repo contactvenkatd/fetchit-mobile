@@ -16,7 +16,13 @@ const path = require('node:path');
       stage = `${slug}: submit`;
       const app = backend({ key, upstream }); const ui = mount(app.api, slug);
       try {
-        await ui.start(); await ui.click('Approve estimate');
+        await ui.start();
+        // Current checkout requires a retailer spending limit (and, at zero
+        // headroom, an explicit shipping/tax acknowledgement) before approval.
+        const budget = ui.container.querySelector('input[aria-label="Retailer spending limit in USD"]');
+        if (budget && !budget.value) await ui.setBudget('10.00');
+        if (ui.button('Acknowledge zero shipping/tax headroom')) await ui.click('Acknowledge zero shipping/tax headroom');
+        await ui.click('Approve estimate');
         const button = ui.button('Place Order');
         await ui.act(async () => { button.click(); button.click(); }); await ui.flush();
         assert.equal(app.calls.submissions.length, 1);
