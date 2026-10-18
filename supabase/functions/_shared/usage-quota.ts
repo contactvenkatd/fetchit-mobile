@@ -27,10 +27,11 @@ const PLAN_RANK: Record<QuotaPlan, number> = { Free: 0, Plus: 1, Pro: 2, Max: 3 
 //   Plus  $4.99 × 0.90  = $4.491    → 224.55¢ each
 //   Pro  $19.99 × 0.875 = $17.49125 → 874.5625¢ each
 //   Max  $99.99 × 0.80  = $79.992   → 3999.6¢ each
-//   Free: capped loss-leader of $1.00/user/month → 50¢ each.
+//   Free: capped loss-leader at half of Plus's budget
+//         $4.491 ÷ 2 = $2.2455/user/month → 112.275¢ each.
 // Fallbacks only: override with QUOTA_<AI|ZINC>_<FREE|PLUS|PRO|MAX>_CENTS.
 export const DEFAULT_BUDGET_CENTS: Record<QuotaPlan, Record<QuotaBucket, number>> = {
-  Free: { ai: 50, zinc: 50 },
+  Free: { ai: 112.275, zinc: 112.275 },
   Plus: { ai: 224.55, zinc: 224.55 },
   Pro: { ai: 874.5625, zinc: 874.5625 },
   Max: { ai: 3999.6, zinc: 3999.6 },

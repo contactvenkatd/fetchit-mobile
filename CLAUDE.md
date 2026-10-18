@@ -346,9 +346,10 @@ data calls (`search-products`: search + details + offers, $0.01 each).
   (default 300); a denied check re-verifies a >60s-old plan.
 - **Budgets per bucket** (COGS = price × (1 − margin), split 50/50), explicit
   per plan via `QUOTA_<AI|ZINC>_<FREE|PLUS|PRO|MAX>_CENTS` secrets; defaults:
-  Free 50¢ (a $1.00/user loss-leader cap), Plus 224.55¢ (10% margin), Pro
-  874.5625¢ (12.5%), Max 3999.6¢ (20%). Grok rates (grok-4.3) live in
-  `_shared/usage-quota.ts` — update them if `GROK_MODEL` changes.
+  Free 112.275¢ (loss-leader cap = half of Plus: $2.2455/user/month), Plus
+  224.55¢ (10% margin), Pro 874.5625¢ (12.5%), Max 3999.6¢ (20%). Grok rates
+  (grok-4.3) live in `_shared/usage-quota.ts` — update them if `GROK_MODEL`
+  changes.
 - **Fail policy:** AI fails **open**, Zinc fails **closed** (503
   `quota_unavailable`). Over budget → **429** `quota_exceeded` with `bucket`,
   `usedCents`, `limitCents`, `resetsAt`. A failed post-call debit is logged,
@@ -362,7 +363,6 @@ data calls (`search-products`: search + details + offers, $0.01 each).
 - **Tests:** `tests/usage-quota.test.js`, `supabase/tests/usage-quota-sql.test.ts`
   (Deno + PGlite).
 
-## Status — what's built vs stubbed
 ## Provider balances (Zinc alert monitor, xAI auto top-up)
 Nothing here moves money. **Zinc has no top-up API** (only `GET /wallet/me`;
 funds are added in Zinc's dashboard), so FetchIt only watches it. **xAI tops
@@ -389,6 +389,7 @@ itself up** via its built-in console auto top-up — one-time setup in
 - **Tests:** `tests/balance-monitor.test.js`,
   `supabase/tests/balance-topup-events-sql.test.ts`.
 
+## Status — what's built vs stubbed
 - **Fully built:** Landing (logo + tagline, Sign In/Create Account CTAs, and a
   "Learn More" slide-up bottom sheet — built with RN's `Modal animationType="slide"`,
   no extra deps), **Login** (native passwordless: email → attestation-gated

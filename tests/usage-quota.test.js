@@ -239,8 +239,8 @@ const user = (extra = {}) => ({ id: 'u1', app_metadata: {}, user_metadata: {}, .
 
 test('per-plan cent budgets: margin-derived defaults, explicit env overrides, invalid env ignored', async () => {
   const { mod } = await quotaModule({ env: { QUOTA_AI_PRO_CENTS: '900.5', QUOTA_ZINC_MAX_CENTS: 'lots' } });
-  assert.deepEqual(['Free', 'Plus', 'Pro', 'Max'].map(p => mod.budgetCents('ai', p)), [50, 224.55, 900.5, 3999.6]);
-  assert.deepEqual(['Free', 'Plus', 'Pro', 'Max'].map(p => mod.budgetCents('zinc', p)), [50, 224.55, 874.5625, 3999.6]);
+  assert.deepEqual(['Free', 'Plus', 'Pro', 'Max'].map(p => mod.budgetCents('ai', p)), [112.275, 224.55, 900.5, 3999.6]);
+  assert.deepEqual(['Free', 'Plus', 'Pro', 'Max'].map(p => mod.budgetCents('zinc', p)), [112.275, 224.55, 874.5625, 3999.6]);
 });
 
 test('a client-written user_metadata.plan never raises the budget', async () => {
@@ -248,7 +248,7 @@ test('a client-written user_metadata.plan never raises the budget', async () => 
   const { mod } = await quotaModule({ admin,
     customers: { cus_other: owned('cus_other', 'someone-else') }, subs: { cus_other: [sub('Max')] } });
   const decision = await mod.checkQuota(user({ user_metadata: { plan: 'Max', stripe_customer_id: 'cus_other' } }), 'zinc');
-  assert.deepEqual([decision.snapshot.plan, decision.snapshot.limitCents], ['Free', 50]);
+  assert.deepEqual([decision.snapshot.plan, decision.snapshot.limitCents], ['Free', 112.275]);
   assert.equal(state.upserts[0].plan, 'Free');
 });
 
@@ -294,7 +294,7 @@ test('a denied check re-verifies a stale plan so an upgrade applies immediately'
   const { mod } = await quotaModule({ admin, env: { QUOTA_PLAN_CACHE_SECONDS: '600' },
     customers: { cus_1: owned('cus_1') }, subs: { cus_1: [sub('Plus')] } });
   const u = user({ app_metadata: { stripe_customers: { test: 'cus_1' } } });
-  await mod.chargeQuota(u, 'zinc', 50_000_000, await mod.checkQuota(u, 'zinc')); // Free budget spent
+  await mod.chargeQuota(u, 'zinc', 112_275_000, await mod.checkQuota(u, 'zinc')); // Free budget spent
   const upgraded = await mod.checkQuota(u, 'zinc');
   assert.deepEqual([upgraded.allowed, upgraded.snapshot.plan, upgraded.snapshot.limitCents], [true, 'Plus', 224.55]);
 });
@@ -319,7 +319,7 @@ test('quotaStatus reads both buckets without debiting; the 429 body names dollar
   const { admin, state } = adminMock();
   const { mod } = await quotaModule({ admin });
   const status = await mod.quotaStatus(user());
-  assert.deepEqual([status.buckets.ai.remainingCents, status.buckets.zinc.limitCents], [50, 50]);
+  assert.deepEqual([status.buckets.ai.remainingCents, status.buckets.zinc.limitCents], [112.275, 112.275]);
   assert.equal(state.consumes.length, 0);
   const body = mod.quotaExceededBody({ ...exceeded('ai').snapshot, plan: 'Plus', limitCents: 224.55 });
   assert.equal(body.error.code, 'quota_exceeded');
