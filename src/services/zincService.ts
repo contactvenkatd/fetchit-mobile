@@ -14,15 +14,16 @@ export interface ProductResult {
   /** Currently the orderable retailer URL returned by Zinc. */
   productId: string;
   url: string;
+  checkoutUnavailableReason?: string;
 }
 
 export class ZincServiceError extends Error {
-  readonly userMessage =
-    "I couldn't search for products right now. Please try again in a moment.";
+  readonly userMessage: string;
 
-  constructor(message: string, options?: ErrorOptions) {
+  constructor(message: string, options?: ErrorOptions, userMessage = "I couldn't search for products right now. Please try again in a moment.") {
     super(message, options);
     this.name = 'ZincServiceError';
+    this.userMessage = userMessage;
   }
 }
 
@@ -60,6 +61,17 @@ export async function searchProducts(intent: ShoppingIntent): Promise<ProductRes
     if (error instanceof ZincServiceError) throw error;
     const quotaError = await readQuotaError(error);
     if (quotaError) throw quotaError;
-    throw new ZincServiceError('Zinc product search failed.', { cause: error });
+    const messages: Record<string, string> = {
+      quota_unavailable: 'Product search is temporarily unavailable. Try again shortly or contact FetchIt support if this continues.',
+      zinc_credit_required: 'Product search credits are unavailable. Contact FetchIt support.',
+      zinc_authentication_failed: 'Product search needs attention from FetchIt support. Please contact support.',
+      zinc_rate_limited: 'Product search is busy. Wait a minute, then try again.',
+      unsupported_retailer: 'Search currently supports Amazon US. Please try an Amazon product search.',
+      unauthorized: 'Your session has expired. Sign in again to search for products.',
+      malformed_response: 'The provider returned unrecognized product data. Try again shortly or contact FetchIt support.',
+    };
+    let code: unknown;
+    try { code = (await (error as { context?: Response })?.context?.clone().json())?.error?.code; } catch { /* use safe retry message */ }
+    throw new ZincServiceError('Zinc product search failed.', { cause: error }, typeof code === 'string' ? messages[code] : undefined);
   }
 }

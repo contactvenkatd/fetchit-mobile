@@ -394,6 +394,7 @@ export default function ChatScreen() {
                 {item.products?.map((product) => (
                   <Pressable
                     key={product.productId}
+                    disabled={Boolean(product.checkoutUnavailableReason)}
                     accessibilityRole="button"
                     accessibilityLabel={`${product.title}, ${product.retailer}`}
                     onPress={() =>
@@ -433,6 +434,9 @@ export default function ChatScreen() {
                         {product.title}
                       </Text>
                       <Text style={styles.productRetailer}>{product.retailer}</Text>
+                      {product.checkoutUnavailableReason ? (
+                        <Text style={styles.productRetailer}>Checkout unavailable: {product.checkoutUnavailableReason}</Text>
+                      ) : null}
                       <View style={styles.productFooter}>
                         <Text style={styles.productPrice}>
                           {formatKnownPrice(product.price, product.currency ?? null)}

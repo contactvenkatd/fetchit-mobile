@@ -14,7 +14,7 @@ function load(file, globals = {}) {
   const source = fs.readFileSync(path.join(root, file), 'utf8');
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   const body = ast.statements.filter(x => !ts.isImportDeclaration(x)).map(x => x.getFullText(ast)).join('\n');
-  const context = { exports: {}, console: { warn() {}, error() {} }, Date, ...globals };
+  const context = { exports: {}, console: { warn() {}, error() {}, info() {} }, Date, ...globals };
   vm.runInNewContext(ts.transpileModule(body, { compilerOptions: {
     target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS,
   } }).outputText, context, { filename: file });

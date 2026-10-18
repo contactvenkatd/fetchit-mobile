@@ -1,6 +1,5 @@
 import { signListingPrice } from '../_shared/listing-price.ts';
 import { authenticateRequest, chargeQuota, checkQuota, quotaExceededBody, ZINC_CALL_MICROCENTS } from '../_shared/usage-quota.ts';
-const ZINC_SEARCH_URL = "https://api.zinc.com/search";
 const ZINC_RETAILER_SEARCH_URL = "https://api.zinc.com/products/search";
 
 const corsHeaders = {
@@ -37,6 +36,7 @@ export interface ProductResult {
   retailer: string;
   productId: string;
   url: string;
+  checkoutUnavailableReason?: string;
 }
 
 interface ZincSearchResult {
@@ -150,6 +150,10 @@ export function normalizeResults(raw: unknown, intent: ShoppingIntent): ProductR
     .map(({ result }) => result);
 }
 
+class ZincReadError extends Error {
+  constructor(readonly code: string, readonly userMessage: string, readonly httpStatus = 502) { super(code); }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") {
@@ -199,7 +203,17 @@ Deno.serve(async (req) => {
       const response = await fetch(new URL(path, 'https://api.zinc.com'), {
         headers: { Authorization: `Bearer ${apiKey}` }, redirect: 'error', signal: AbortSignal.timeout(15000),
       });
-      if (!response.ok) throw new Error('amazon_data_unavailable');
+      if (!response.ok) {
+        await response.body?.cancel();
+        const [code, message, status] = response.status === 402
+          ? ['zinc_credit_required', 'Product search credits are unavailable. Contact FetchIt support; no purchase was submitted.', 503] as const
+          : response.status === 401 || response.status === 403
+          ? ['zinc_authentication_failed', 'Product search needs attention from FetchIt support. No purchase was submitted.', 503] as const
+          : response.status === 429
+          ? ['zinc_rate_limited', 'Product search is busy. Wait a minute, then try again.', 429] as const
+          : ['zinc_upstream_error', 'The product provider is unavailable. Please try again shortly.', 502] as const;
+        throw new ZincReadError(code, message, status);
+      }
       billedZincCalls += 1;
       return await response.json();
     };
@@ -218,25 +232,37 @@ Deno.serve(async (req) => {
       specifics.some(v => v?.dimension?.toLowerCase() === wanted.label.toLowerCase() &&
         typeof v.value === 'string' && v.value.trim().toLowerCase() === wanted.value.toLowerCase()));
     const secret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim() ?? '';
+    let unverified = 0;
     const results = await Promise.all(raw.results.slice(0, 5).map(async (row: Record<string, unknown>) => {
+      if (!row || typeof row.product_id !== 'string' || !/^[A-Z0-9]{10}$/.test(row.product_id) ||
+          row.available === false) return null;
+      // Discovery is useful even when optional enrichment cannot verify checkout.
+      // Never sign this fallback or infer its currency from the Amazon domain.
+      const fallback = (reason: string) => {
+        if (typeof row.title !== 'string' || !row.title.trim()) return null;
+        unverified += 1;
+        return { title: row.title as string, price: null, currency: null,
+          image: typeof row.image === 'string' ? row.image : null, retailer: 'amazon',
+          productId: row.product_id as string, url: `https://www.amazon.com/dp/${row.product_id}`,
+          listingProof: null, checkoutUnavailableReason: reason };
+      };
       try {
-        if (typeof row.product_id !== 'string' || !/^[A-Z0-9]{10}$/.test(row.product_id) || row.available === false) return null;
         let asin = row.product_id;
         let details = await read(`/products/${asin}?retailer=amazon`);
         if (requested.length && !matches(details.variant_specifics)) {
           const child = details.all_variants?.find((v: { product_id?: string; variant_specifics?: unknown }) =>
             typeof v.product_id === 'string' && /^[A-Z0-9]{10}$/.test(v.product_id) && matches(v.variant_specifics));
-          if (!child) return null;
+          if (!child) return fallback('Requested variant is unverified. Try another size or color.');
           asin = child.product_id;
           details = await read(`/products/${asin}?retailer=amazon`);
         }
         if (details.status !== 'completed' || details.retailer !== 'amazon' ||
             (details.asin ?? details.product_id) !== asin || details.buyapi_hint === false ||
             details.digital || details.digital_subscription || details.gift_card || details.fresh ||
-            details.pantry || details.customizable || (requested.length && !matches(details.variant_specifics))) return null;
+            details.pantry || details.customizable || (requested.length && !matches(details.variant_specifics))) return fallback('Product or requested variant cannot be verified for checkout.');
         const offers = await read(`/products/${asin}/offers?retailer=amazon`);
         if (offers.status !== 'completed' || offers.retailer !== 'amazon' ||
-            (offers.asin ?? offers.product_id) !== asin || offers.expired_product_id === true || !Array.isArray(offers.offers)) return null;
+            (offers.asin ?? offers.product_id) !== asin || offers.expired_product_id === true || !Array.isArray(offers.offers)) return fallback('Offer information is unverified. Try searching again shortly.');
         // Official offers contract: integer cents, excluding shipping. Currency
         // must be explicit on the same ASIN offer; no domain-based USD inference.
         const offer = offers.offers.find((v: Record<string, any>) =>
@@ -244,8 +270,8 @@ Deno.serve(async (req) => {
           (!v.asin || v.asin === asin) && v.currency === 'USD' &&
           (!v.currency_code || v.currency_code === 'USD') && Number.isSafeInteger(v.price) && v.price > 0 &&
           typeof v.seller?.id === 'string' && v.seller.id && typeof v.seller.name === 'string');
-        if (!offer || (offer.minimum_quantity != null && (!Number.isInteger(offer.minimum_quantity) || offer.minimum_quantity < 1 || offer.minimum_quantity > 100 || body.quantity < offer.minimum_quantity)) ||
-            (body.priceCeiling !== null && offer.price > Math.round(body.priceCeiling * 100))) return null;
+        if (!offer || (offer.minimum_quantity != null && (!Number.isInteger(offer.minimum_quantity) || offer.minimum_quantity < 1 || offer.minimum_quantity > 100 || body.quantity < offer.minimum_quantity))) return fallback('No eligible offer is verified for this quantity. Try another product or quantity.');
+        if (body.priceCeiling !== null && offer.price > Math.round(body.priceCeiling * 100)) return null;
         const url = `https://www.amazon.com/dp/${asin}`;
         const amazon = { asin, sellerId: offer.seller.id, sellerName: offer.seller.name, condition: 'New' as const, variants: requested,
           minimumQuantity: offer.minimum_quantity ?? 1,
@@ -259,15 +285,22 @@ Deno.serve(async (req) => {
           retailer: 'amazon', productId: asin, url, amazon,
           listingProof: await signListingPrice(url, offer.price, offer.currency, secret, Date.now(), amazon),
         };
-      } catch { return null; }
+      } catch (error) {
+        const reason = error instanceof ZincReadError ? error.userMessage : 'Product details could not be verified. Try searching again shortly.';
+        console.warn(JSON.stringify({ event: 'search_enrichment_unavailable', code: error instanceof ZincReadError ? error.code : 'details_unavailable' }));
+        return fallback(reason);
+      }
     }));
+    console.info(JSON.stringify({ event: 'product_search_completed', candidates: raw.results.length, unverified, billedZincCalls }));
     const unique = new Set<string>();
     return json({ results: results.filter(result => {
       if (!result || unique.has(result.productId)) return false;
       unique.add(result.productId); return true;
     }), scope: 'amazon-us' });
-  } catch {
-    return failure('product_search_failed', 'Amazon US search data is unavailable. No purchase was submitted.', 502);
+  } catch (error) {
+    console.error(JSON.stringify({ event: 'product_search_failed', code: error instanceof ZincReadError ? error.code : 'network_timeout_or_response' }));
+    if (error instanceof ZincReadError) return failure(error.code, error.userMessage, error.httpStatus);
+    return failure('product_search_failed', 'Amazon US search data is unavailable. Try again shortly. No purchase was submitted.', 502);
   } finally {
     await chargeQuota(user, 'zinc', billedZincCalls * ZINC_CALL_MICROCENTS, quota);
   }

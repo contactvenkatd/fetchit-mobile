@@ -1,0 +1,42 @@
+{
+  "observedAt": "2026-10-18T04:41:20.727553+00:00",
+  "buildId": "b46de3e9-0902-4aa6-bf15-5b72c4b25f65",
+  "version": "1.0.0",
+  "buildNumber": "19",
+  "status": "FINISHED",
+  "ipaSha256": "8c3f0215f11501c595e9af5f85abef624172bae0f5fc6b08bbc08be66a793b90",
+  "signatureVerified": true,
+  "appAttestEnvironment": "production",
+  "appStoreProvisioning": true,
+  "bundleMarkers": {
+    "Checkout unavailable: ": true,
+    "checkoutUnavailableReason": true,
+    "Product search credits are unavailable. Contact FetchIt support.": true,
+    "Product search is busy. Wait a minute, then try again.": true,
+    "usd-shipping-review-v8": true,
+    "acceptsProcessingFee": true,
+    "acknowledgesZeroHeadroom": true,
+    "disclosed_variable_processing": true,
+    "fetchit.checkout.pending.": true,
+    "checkout_submission_pending": true,
+    "insufficient_retailer_budget": true,
+    "These are not destination-specific": true,
+    "Additional shipping or tax could prevent placement.": true
+  },
+  "preservedCheckoutSourceDigests": {
+    "src/app/(app)/checkout-confirmation.tsx": true,
+    "src/app/(app)/orders.tsx": true,
+    "src/app/(app)/order-history.tsx": true,
+    "src/services/checkoutPricing.ts": true,
+    "src/services/orderService.ts": true,
+    "src/services/checkoutSubmission.ts": true,
+    "src/lib/data.ts": true,
+    "supabase/functions/place-order/index.ts": true,
+    "supabase/functions/_shared/checkout-pricing.ts": true,
+    "supabase/functions/_shared/order-status.ts": true,
+    "supabase/functions/_shared/listing-price.ts": true,
+    "supabase/functions/_shared/stripe-backend.ts": true
+  },
+  "nativeDeviceRuntimeVerified": false,
+  "testFlightUploaded": false
+}

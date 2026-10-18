@@ -1,0 +1,76 @@
+{
+  "observedAt": "2026-10-18T04:33:02.275Z",
+  "query": "Best wireless headphones under $100",
+  "scope": "Authenticated deployed Grok and Zinc search; real client services/chat screen; native layout/auth UI/persistence mocked; no orders",
+  "results": [
+    {
+      "asin": "B0C3HCD34R",
+      "title": "Soundcore by Anker Q20i Hybrid Active Noise Cancelling Headphones, Black",
+      "url": "https://www.amazon.com/dp/B0C3HCD34R",
+      "priceCents": null,
+      "currency": null,
+      "proofPresent": false,
+      "checkoutUnavailableReason": "Product search is busy. Wait a minute, then try again."
+    },
+    {
+      "asin": "B0HJWJQTB9",
+      "title": "Bluetooth Wireless Earbuds 100hrs Play Back Sport Headphones \u00b7 New \u00b7 Quoted seller: CHIFEIYANG; seller may vary",
+      "url": "https://www.amazon.com/dp/B0HJWJQTB9",
+      "priceCents": 4999,
+      "currency": "USD",
+      "proofPresent": true,
+      "checkoutUnavailableReason": null
+    },
+    {
+      "asin": "B0BMLXSNG8",
+      "title": "Glynzak Wireless Bluetooth Headphones Over Ear V6.0 HiFi Stereo with Mic | 65H Playtime 6EQ Modes Foldable Bluetooth Headset with Microphone for Travel Smartphone Computer Laptop Rose Gold",
+      "url": "https://www.amazon.com/dp/B0BMLXSNG8",
+      "priceCents": null,
+      "currency": null,
+      "proofPresent": false,
+      "checkoutUnavailableReason": "No eligible offer is verified for this quantity. Try another product or quantity."
+    },
+    {
+      "asin": "B0BRQ7PZG4",
+      "title": "Glynzak Wireless Bluetooth Headphones Over Ear V6.0 HiFi Stereo with Mic | 65H Playtime 6EQ Modes Foldable Bluetooth Headset with Microphone for Travel Smartphone Computer Laptop Black Red",
+      "url": "https://www.amazon.com/dp/B0BRQ7PZG4",
+      "priceCents": null,
+      "currency": null,
+      "proofPresent": false,
+      "checkoutUnavailableReason": "Product search is busy. Wait a minute, then try again."
+    }
+  ],
+  "renderedCardCount": 4,
+  "financialOperations": 0,
+  "nativePhoneVerified": false,
+  "deployedFunctions": {
+    "search-products": 23,
+    "usage-status": 1
+  },
+  "primaryCause": "Missing production quota tables and dollar-metered quota RPCs; Zinc search failed closed before calling Zinc.",
+  "liveZincDataCalls": {
+    "diagnostic": 3,
+    "authenticatedSearches": 18,
+    "totalSuccessful": 21,
+    "finalSearchSuccessful": 7,
+    "failedEnrichmentRateLimits": 2
+  },
+  "tests": {
+    "focusedMockChecks": 49,
+    "checkoutMockChecks": 129,
+    "typescript": "passed",
+    "broaderUnitSuite": {
+      "passed": 109,
+      "failed": 1,
+      "failure": "Pre-existing Google authentication bypass remains disabled assertion; source and test unchanged from HEAD"
+    }
+  },
+  "ios": {
+    "buildId": "b46de3e9-0902-4aa6-bf15-5b72c4b25f65",
+    "buildNumber": "19",
+    "status": "FINISHED",
+    "artifactVerified": true,
+    "selectorUpdated": true,
+    "testFlightUploaded": false
+  }
+}

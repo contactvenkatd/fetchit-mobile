@@ -138,11 +138,14 @@ if (process.env.RUN_REAL_CURRENCY_SEARCH === '1') {
   });
   for (const change of [{ currency: null }, { currency: 'CAD' }, { currency_code: 'EUR' }, { available: false }, { condition: 'Used - Good' }, { international: true }, { prime_only: true }, { expired_product_id: true }, { minimum_quantity: 3 }, { asin: 'B000000000' }]) {
     test(`Amazon unverified/unavailable/wrong offer stays blocked: ${JSON.stringify(change)}`, async () => {
-      assert.equal((await search(provider(row => ({ ...row, ...change })))()).length, 0);
+      const rows = await search(provider(row => ({ ...row, ...change })))();
+      assert.equal(rows.length, 1); assert.equal(rows[0].listingProof, null);
+      assert.equal(rows[0].currency, null); assert.ok(rows[0].checkoutUnavailableReason);
     });
   }
   test('Requested Amazon variant must match actual details; other retailers are not relabeled', async () => {
-    assert.equal((await search(provider())({ ...intent, size: 'Unsupported size' })).length, 0);
+    const rows = await search(provider())({ ...intent, size: 'Unsupported size' });
+    assert.equal(rows.length, 1); assert.equal(rows[0].listingProof, null); assert.match(rows[0].checkoutUnavailableReason, /variant/);
     let handler; load('supabase/functions/search-products/index.ts', {}, {
       Response, Request, URL, signListingPrice: () => null, ...quotaAllowed,
       Deno: { env: { get: () => 'fixture' }, serve: fn => { handler = fn; } },
