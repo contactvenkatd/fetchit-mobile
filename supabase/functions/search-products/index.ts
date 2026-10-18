@@ -150,6 +150,57 @@ export function normalizeResults(raw: unknown, intent: ShoppingIntent): ProductR
     .map(({ result }) => result);
 }
 
+// Diagnostics only ([search-pipeline] events): these name which check a row
+// failed. They never decide eligibility — the conditions below still do — and
+// never log credentials, addresses or user data.
+const LOG = '[search-pipeline] search-products:';
+
+function detailsRejection(details: Record<string, any>, asin: string, variantMismatch: boolean): string {
+  if (details.status !== 'completed') return `details_status_not_completed(${String(details.status)})`;
+  if (details.retailer !== 'amazon') return `details_retailer_not_amazon(${String(details.retailer)})`;
+  if ((details.asin ?? details.product_id) !== asin) return 'details_asin_mismatch';
+  if (details.buyapi_hint === false) return 'details_buyapi_hint_false';
+  for (const flag of ['digital', 'digital_subscription', 'gift_card', 'fresh', 'pantry', 'customizable']) {
+    if (details[flag]) return `details_${flag}`;
+  }
+  return variantMismatch ? 'details_variant_mismatch' : 'details_unknown';
+}
+
+function offersRejection(offers: Record<string, any>, asin: string): string {
+  if (offers.status !== 'completed') return `offers_status_not_completed(${String(offers.status)})`;
+  if (offers.retailer !== 'amazon') return `offers_retailer_not_amazon(${String(offers.retailer)})`;
+  if ((offers.asin ?? offers.product_id) !== asin) return 'offers_asin_mismatch';
+  if (offers.expired_product_id === true) return 'offers_expired_product_id';
+  return Array.isArray(offers.offers) ? 'offers_unknown' : 'offers_not_array';
+}
+
+// First failing check per offer, in the same order as the offer predicate.
+function offerRejection(v: Record<string, any>, asin: string): string {
+  if (!v || typeof v !== 'object') return 'offer_not_object';
+  if (v.available !== true) return 'offer_not_available';
+  if (v.condition !== 'New') return 'offer_condition_not_new';
+  if (v.international === true) return 'offer_international';
+  if (v.prime_only === true) return 'offer_prime_only';
+  if (v.expired_product_id === true) return 'offer_expired_product_id';
+  if (v.asin && v.asin !== asin) return 'offer_asin_mismatch';
+  if (v.currency !== 'USD') return `offer_currency_not_usd(${String(v.currency)})`;
+  if (v.currency_code && v.currency_code !== 'USD') return `offer_currency_code_not_usd(${String(v.currency_code)})`;
+  if (!(Number.isSafeInteger(v.price) && v.price > 0)) return 'offer_price_invalid';
+  if (!(typeof v.seller?.id === 'string' && v.seller.id)) return 'offer_missing_seller_id';
+  if (typeof v.seller.name !== 'string') return 'offer_missing_seller_name';
+  return 'offer_eligible';
+}
+
+function summarizeOffers(list: unknown[], asin: string): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const v of list) {
+    let reason: string;
+    try { reason = offerRejection(v as Record<string, any>, asin); } catch { reason = 'offer_unreadable'; }
+    counts[reason] = (counts[reason] ?? 0) + 1;
+  }
+  return counts;
+}
+
 class ZincReadError extends Error {
   constructor(readonly code: string, readonly userMessage: string, readonly httpStatus = 502) { super(code); }
 }
@@ -220,7 +271,14 @@ Deno.serve(async (req) => {
     const searchUrl = new URL(ZINC_RETAILER_SEARCH_URL);
     searchUrl.searchParams.set('query', buildSearchQuery(body));
     searchUrl.searchParams.set('retailer', 'amazon');
+    console.info(LOG, JSON.stringify({ event: 'zinc_search_request',
+      query: searchUrl.searchParams.get('query'), retailer: 'amazon',
+      filters: { size: body.size, color: body.color, priceCeiling: body.priceCeiling,
+        quantity: body.quantity, retailerPreference: body.retailerPreference } }));
     const raw = await read(searchUrl.pathname + searchUrl.search);
+    console.info(LOG, JSON.stringify({ event: 'zinc_search_response', status: raw?.status ?? null,
+      rawRows: Array.isArray(raw?.results) ? raw.results.length : null,
+      examined: Array.isArray(raw?.results) ? Math.min(raw.results.length, 5) : 0 }));
     if (raw.status !== 'completed' || !Array.isArray(raw.results)) {
       return failure('malformed_response', 'Amazon search data could not be verified.', 502);
     }
@@ -233,9 +291,14 @@ Deno.serve(async (req) => {
         typeof v.value === 'string' && v.value.trim().toLowerCase() === wanted.value.toLowerCase()));
     const secret = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')?.trim() ?? '';
     let unverified = 0;
-    const results = await Promise.all(raw.results.slice(0, 5).map(async (row: Record<string, unknown>) => {
+    const results = await Promise.all(raw.results.slice(0, 5).map(async (row: Record<string, unknown>, index: number) => {
+      const note = (outcome: 'dropped' | 'unverified', reason: string, extra?: Record<string, unknown>) =>
+        console.info(LOG, JSON.stringify({ event: `row_${outcome}`, index, productId: row?.product_id ?? null, reason, ...extra }));
       if (!row || typeof row.product_id !== 'string' || !/^[A-Z0-9]{10}$/.test(row.product_id) ||
-          row.available === false) return null;
+          row.available === false) {
+        note('dropped', row?.available === false ? 'search_row_unavailable' : 'search_row_invalid_product_id');
+        return null;
+      }
       // Discovery is useful even when optional enrichment cannot verify checkout.
       // Never sign this fallback or infer its currency from the Amazon domain.
       const fallback = (reason: string) => {
@@ -252,6 +315,7 @@ Deno.serve(async (req) => {
         if (requested.length && !matches(details.variant_specifics)) {
           const child = details.all_variants?.find((v: { product_id?: string; variant_specifics?: unknown }) =>
             typeof v.product_id === 'string' && /^[A-Z0-9]{10}$/.test(v.product_id) && matches(v.variant_specifics));
+          if (!child) note('unverified', 'no_variant_matches_requested', { requested });
           if (!child) return fallback('Requested variant is unverified. Try another size or color.');
           asin = child.product_id;
           details = await read(`/products/${asin}?retailer=amazon`);
@@ -259,10 +323,16 @@ Deno.serve(async (req) => {
         if (details.status !== 'completed' || details.retailer !== 'amazon' ||
             (details.asin ?? details.product_id) !== asin || details.buyapi_hint === false ||
             details.digital || details.digital_subscription || details.gift_card || details.fresh ||
-            details.pantry || details.customizable || (requested.length && !matches(details.variant_specifics))) return fallback('Product or requested variant cannot be verified for checkout.');
+            details.pantry || details.customizable || (requested.length && !matches(details.variant_specifics))) {
+          note('unverified', detailsRejection(details, asin, Boolean(requested.length && !matches(details.variant_specifics))));
+          return fallback('Product or requested variant cannot be verified for checkout.');
+        }
         const offers = await read(`/products/${asin}/offers?retailer=amazon`);
         if (offers.status !== 'completed' || offers.retailer !== 'amazon' ||
-            (offers.asin ?? offers.product_id) !== asin || offers.expired_product_id === true || !Array.isArray(offers.offers)) return fallback('Offer information is unverified. Try searching again shortly.');
+            (offers.asin ?? offers.product_id) !== asin || offers.expired_product_id === true || !Array.isArray(offers.offers)) {
+          note('unverified', offersRejection(offers, asin));
+          return fallback('Offer information is unverified. Try searching again shortly.');
+        }
         // Official offers contract: integer cents, excluding shipping. Currency
         // must be explicit on the same ASIN offer; no domain-based USD inference.
         const offer = offers.offers.find((v: Record<string, any>) =>
@@ -270,8 +340,15 @@ Deno.serve(async (req) => {
           (!v.asin || v.asin === asin) && v.currency === 'USD' &&
           (!v.currency_code || v.currency_code === 'USD') && Number.isSafeInteger(v.price) && v.price > 0 &&
           typeof v.seller?.id === 'string' && v.seller.id && typeof v.seller.name === 'string');
-        if (!offer || (offer.minimum_quantity != null && (!Number.isInteger(offer.minimum_quantity) || offer.minimum_quantity < 1 || offer.minimum_quantity > 100 || body.quantity < offer.minimum_quantity))) return fallback('No eligible offer is verified for this quantity. Try another product or quantity.');
-        if (body.priceCeiling !== null && offer.price > Math.round(body.priceCeiling * 100)) return null;
+        if (!offer || (offer.minimum_quantity != null && (!Number.isInteger(offer.minimum_quantity) || offer.minimum_quantity < 1 || offer.minimum_quantity > 100 || body.quantity < offer.minimum_quantity))) {
+          note('unverified', offer ? 'offer_minimum_quantity' : 'no_eligible_offer',
+            offer ? { minimumQuantity: offer.minimum_quantity } : { offerCount: offers.offers.length, offerRejections: summarizeOffers(offers.offers, asin) });
+          return fallback('No eligible offer is verified for this quantity. Try another product or quantity.');
+        }
+        if (body.priceCeiling !== null && offer.price > Math.round(body.priceCeiling * 100)) {
+          note('dropped', 'offer_over_price_ceiling', { price: offer.price, ceilingCents: Math.round(body.priceCeiling * 100) });
+          return null;
+        }
         const url = `https://www.amazon.com/dp/${asin}`;
         const amazon = { asin, sellerId: offer.seller.id, sellerName: offer.seller.name, condition: 'New' as const, variants: requested,
           minimumQuantity: offer.minimum_quantity ?? 1,
@@ -288,6 +365,7 @@ Deno.serve(async (req) => {
       } catch (error) {
         const reason = error instanceof ZincReadError ? error.userMessage : 'Product details could not be verified. Try searching again shortly.';
         console.warn(JSON.stringify({ event: 'search_enrichment_unavailable', code: error instanceof ZincReadError ? error.code : 'details_unavailable' }));
+        note('unverified', 'exception', { error: error instanceof ZincReadError ? error.code : error instanceof Error ? error.message : String(error) });
         return fallback(reason);
       }
     }));

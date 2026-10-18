@@ -50,9 +50,21 @@ export async function searchProducts(intent: ShoppingIntent): Promise<ProductRes
     const { data, error } = await supabase.functions.invoke('search-products', {
       body: intent,
     });
-    if (error) throw error;
+    if (error) {
+      console.log('[search-pipeline] zincService: search-products error', {
+        name: (error as Error)?.name,
+        status: (error as { context?: Response })?.context?.status ?? null,
+      });
+      throw error;
+    }
 
     const results = (data as { results?: unknown } | null)?.results;
+    console.log('[search-pipeline] zincService: received', {
+      isArray: Array.isArray(results),
+      count: Array.isArray(results) ? results.length : null,
+      malformed: Array.isArray(results) ? results.filter((r) => !isProductResult(r)).length : null,
+      scope: (data as { scope?: unknown } | null)?.scope ?? null,
+    });
     if (!Array.isArray(results) || !results.every(isProductResult)) {
       throw new Error('Edge Function returned malformed product results.');
     }

@@ -20,7 +20,7 @@ async function mountChat(invoke) {
   '@/lib/auth':{useAuth:()=>({session:{user:{id:'fixture'}}}),greetingName:()=> 'Friend'},
   '@/lib/chats':{createChat:async()=>({id:'fixture'}),updateChatMessages:async()=>{}},'@/services/grokService':grok,'@/services/zincService':zinc,
   '@/services/quotaService':quota,'@/theme/colors':load('src/theme/colors.ts'),'@/services/checkoutPricing':load('src/services/checkoutPricing.ts')},
-  {requestAnimationFrame:fn=>fn(),console:{error(){}}}).default;
+  {requestAnimationFrame:fn=>fn(),console:{error(){},log(){}}}).default;
  const container=document.getElementById('root'),root=createRoot(container);
  await React.act(async()=>root.render(h(screen)));
  return {container,async search(label='Best wireless headphones under $100'){

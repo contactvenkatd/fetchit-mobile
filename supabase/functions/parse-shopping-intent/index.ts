@@ -26,6 +26,9 @@ const json = (body: unknown, status = 200) =>
 const failure = (code: string, message: string, status: number) =>
   json({ error: { code, message } }, status);
 
+// Diagnostics only: how Grok answered, never message text or user data.
+const LOG = "[search-pipeline] parse-shopping-intent:";
+
 interface ShoppingIntent {
   productQuery: string;
   size: string | null;
@@ -43,6 +46,7 @@ type GrokResponse = {
         function?: { name?: string; arguments?: string };
       }>;
     };
+    finish_reason?: string | null;
   }>;
   error?: { message?: string };
   usage?: {
@@ -142,6 +146,8 @@ function isShoppingIntent(value: unknown): value is ShoppingIntent {
     (intent.retailerPreference === null || typeof intent.retailerPreference === "string")
   );
 }
+
+const blankToNull = (value: string | null) => (value?.trim() ? value.trim() : null);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -244,6 +250,7 @@ Deno.serve(async (req) => {
     // Reached only when response.json() succeeded.
     const raw = parsed as GrokResponse;
     if (!response.ok) {
+      console.info(LOG, "xai request failed", { status: response.status, searchFailure });
       return failure(
         "xai_request_failed",
         raw.error?.message ?? `xAI returned HTTP ${response.status}.`,
@@ -255,20 +262,39 @@ Deno.serve(async (req) => {
     const toolCall = responseMessage?.tool_calls?.find(
       (call) => call.function?.name === "search_products",
     );
+    console.info(LOG, "grok response", {
+      type: toolCall ? "shopping_intent" : "message",
+      searchFailure,
+      finishReason: raw.choices?.[0]?.finish_reason ?? null,
+      toolCalls: responseMessage?.tool_calls?.map((call) => call.function?.name ?? null) ?? [],
+      hasText: Boolean(responseMessage?.content?.trim()),
+      historyLength: history.length,
+    });
     if (toolCall) {
       if (!toolCall.function?.arguments) {
+        console.info(LOG, "tool call missing arguments");
         return failure("missing_tool_arguments", "Grok returned an incomplete shopping intent.", 502);
       }
 
       const intent: unknown = JSON.parse(toolCall.function.arguments);
       if (!isShoppingIntent(intent)) {
+        console.info(LOG, "malformed intent", {
+          keys: intent && typeof intent === "object" ? Object.keys(intent) : typeof intent,
+        });
         return failure("malformed_intent", "Grok returned a malformed shopping intent.", 502);
       }
 
-      return json({
-        type: "shopping_intent",
-        intent: { ...intent, productQuery: intent.productQuery.trim() },
-      });
+      // The tool schema asks for null when a constraint is unspecified, but
+      // Grok sometimes sends "" instead. Normalize so clients see one shape.
+      const normalized: ShoppingIntent = {
+        ...intent,
+        productQuery: intent.productQuery.trim(),
+        size: blankToNull(intent.size),
+        color: blankToNull(intent.color),
+        retailerPreference: blankToNull(intent.retailerPreference),
+      };
+      console.info(LOG, "shopping intent", normalized);
+      return json({ type: "shopping_intent", intent: normalized });
     }
 
     const text = responseMessage?.content?.trim();
@@ -277,7 +303,8 @@ Deno.serve(async (req) => {
     }
 
     return json({ type: "message", text });
-  } catch {
+  } catch (error) {
+    console.info(LOG, "request failed", { error: error instanceof Error ? error.message : String(error) });
     return failure("chat_request_failed", "The assistant request failed.", 502);
   }
 });

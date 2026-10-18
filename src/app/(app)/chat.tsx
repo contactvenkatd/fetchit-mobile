@@ -207,6 +207,10 @@ export default function ChatScreen() {
 
     try {
       const result = await sendChatMessage(body, buildChatHistory(conversational(messages)));
+      console.log('[search-pipeline] chat: grok result', {
+        type: result.type,
+        productQuery: result.type === 'shopping_intent' ? result.intent.productQuery : null,
+      });
       const assistantMessage: Msg = {
         id: nextId(),
         role: 'assistant',
@@ -258,6 +262,10 @@ export default function ChatScreen() {
             contextText: productSummary,
           });
           setMessages([...completedMessages]);
+          console.log('[search-pipeline] chat: product cards rendered', {
+            count: products.length,
+            zeroResultsFallback: products.length === 0,
+          });
         } catch (searchError) {
           completedMessages.push({
             id: nextId(),
